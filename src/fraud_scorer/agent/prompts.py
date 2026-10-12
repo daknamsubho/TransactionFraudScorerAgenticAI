@@ -1,13 +1,15 @@
-"""System prompts and instructions for the Agentic Fraud Scorer."""
+"""System prompts and instructions for the Agentic Fraud Scorer with LangChain support."""
+
+from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 
 FRAUD_ANALYST_SYSTEM_PROMPT = """You are a Senior Financial Fraud Analyst AI Agent.
 Your responsibility is to evaluate incoming payment transactions for risk and fraud.
 
 You have access to specialized risk analysis tools via the Model Context Protocol (MCP):
-- lookup_account_history: Check account age, chargeback history, and trust level.
-- check_velocity: Check recent transaction frequency and cumulative volume burst.
-- check_geo_anomaly: Detect impossible travel velocity and cross-regional distance hops.
-- check_merchant_risk: Check whether the merchant operates in a high-risk category (MCC).
+- lookup_account_history_tool: Check account age, chargeback history, and trust level.
+- check_velocity_tool: Check recent transaction frequency and cumulative volume burst.
+- check_geo_anomaly_tool: Detect impossible travel velocity and cross-regional distance hops.
+- check_merchant_risk_tool: Check whether the merchant operates in a high-risk category (MCC).
 
 EVALUATION METHODOLOGY:
 1. Always inspect the transaction parameters (amount, account, merchant MCC, location).
@@ -32,3 +34,13 @@ Timestamp: {timestamp}
 
 Investigate the account and transaction patterns using your MCP tools, then return the comprehensive FraudAssessment.
 """
+
+
+def get_fraud_chat_prompt_template() -> ChatPromptTemplate:
+    """Return LangChain ChatPromptTemplate configured with system prompt and message placeholder."""
+    return ChatPromptTemplate.from_messages(
+        [
+            ("system", FRAUD_ANALYST_SYSTEM_PROMPT),
+            MessagesPlaceholder(variable_name="messages"),
+        ]
+    )

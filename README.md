@@ -1,12 +1,13 @@
 # Transaction Fraud Scorer Agentic AI
 
-An intelligent, autonomous **Transaction Fraud Scoring** platform built with Python, modern **Model Context Protocol (MCP)** servers, and agentic reasoning loops.
+An intelligent, autonomous **Transaction Fraud Scoring** platform built with Python, **LangChain**, open-source **Ollama** models, and **Model Context Protocol (MCP)** servers.
 
 ---
 
 ## 🌟 Key Features
 
-- **Agentic AI Reasoning**: Evaluates financial transactions using multi-step hypothesis testing and tool-assisted investigation.
+- **Agentic AI with LangChain & Ollama**: Uses open-source local models (`llama3.2:3b`, `mistral`, `qwen2.5`) with native tool/function calling via `ChatOllama` — no expensive commercial APIs required.
+- **Google Colab Ready**: Turnkey interactive Jupyter Notebook [`notebooks/colab_setup_and_run.ipynb`](./notebooks/colab_setup_and_run.ipynb) runs directly on Google Colab CPU or free T4 GPU tier.
 - **MCP Server Architecture**: Modular risk scoring tools exposed via standard Model Context Protocol over `stdio` and `sse`.
 - **Comprehensive Risk Vectors**:
   - ⚡ **Velocity Analysis**: Multi-swipe burst detection and abnormal cumulative spend monitoring.
@@ -21,18 +22,40 @@ An intelligent, autonomous **Transaction Fraud Scoring** platform built with Pyt
 ## 🏗️ Architecture
 
 ```mermaid
-graph TD
-    Client["Payment Gateway / Client"] -->|Submit Transaction| Agent["Fraud Scorer Agent Orchestrator"]
-    Agent -->|Query Tools via MCP| MCPServer["Fraud Scorer MCP Server"]
+flowchart TB
+ subgraph s1["Transaction Risk Score System"]
+        n4["Fraud Scorer Agent (Orchestrator)"]
+        n5["Analysis Agent"]
+        n6["Data Retrieval Agent"]
+        n7["Observability Agent (TBD)"]
+        n8["Governance Agent (TBD)"]
+  end
+ subgraph subGraph1["MCP Tool Server (Local / Remote)"]
+        MCPServer["MCP Server (mcp.server.mcpserver)"]
+        ToolCall["ToolCall"]
+        Tool1["check_velocity"]
+        Tool2["check_geo_anomaly"]
+        Tool3["check_merchant_risk"]
+        Tool4["lookup_account_history"]
+  end
+ subgraph subGraph2["Data / Feature Providers"]
+        MockDB[("Transaction History & Features")]
+  end
+    n1["Web Client"] --> n2["API Gateway"]
+    n2 --> s1
+    n4 --> n5 & n6 & n7 & n8 & n9["Decision Agent"]
+    ToolCall -- MCP Protocol stdio/SSE --> MCPServer
+    MCPServer --> Tool1 & Tool2 & Tool3 & Tool4
+    Tool1 --> MockDB
+    Tool2 --> MockDB
+    Tool3 --> MockDB
+    Tool4 --> MockDB
+    n5 --> subGraph1
+    n6 --> subGraph1
+    n9 --> n10["Communication Engine"]
 
-    subgraph "MCP Risk Tools"
-        MCPServer --> T1["check_velocity"]
-        MCPServer --> T2["check_geo_anomaly"]
-        MCPServer --> T3["check_merchant_risk"]
-        MCPServer --> T4["lookup_account_history"]
-    end
-
-    Agent -->|Aggregate Signals| Decision["FraudAssessment (APPROVE / REVIEW / DECLINE)"]
+    n1@{ shape: rect}
+    n9@{ shape: rect}
 ```
 
 See [docs/architecture.md](./docs/architecture.md) for full technical documentation.
@@ -41,30 +64,34 @@ See [docs/architecture.md](./docs/architecture.md) for full technical documentat
 
 ## 🚀 Quickstart
 
-### 1. Prerequisites
-- Python 3.11+
-- `uv` installed (`brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`)
+### Option A: Run in Google Colab (One-Click)
+Open [`notebooks/colab_setup_and_run.ipynb`](./notebooks/colab_setup_and_run.ipynb) directly in Google Colab:
+- Automatically installs Ollama and launches the background daemon.
+- Pulls `llama3.2:3b`.
+- Runs the LangChain agent and evaluates sample transactions interactively.
+- See [`notebooks/README.md`](./notebooks/README.md) for details.
 
-### 2. Environment Setup
+### Option B: Run Locally with `uv`
 ```bash
-# Clone the repository
+# 1. Clone repository
 git clone https://github.com/daknamsubho/TransactionFraudScorerAgenticAI.git
 cd TransactionFraudScorerAgenticAI
 
-# Synchronize virtual environment and dependencies
+# 2. Sync dependencies
 uv sync
 
-# Configure environment variables
+# 3. Configure environment
 cp .env.example .env
-```
 
-### 3. Run the Agent Demo
-Evaluate sample normal and fraudulent transactions in real-time:
-```bash
+# 4. (Optional) If you have Ollama installed locally:
+# ollama serve &
+# ollama pull llama3.2:3b
+
+# 5. Run the Agent Demo
 uv run fraud-scorer-agent --demo
 ```
 
-### 4. Run the MCP Server Standalone
+### Option C: Run MCP Server Standalone
 ```bash
 # Run over stdio (default)
 uv run fraud-mcp-server
@@ -77,7 +104,7 @@ uv run fraud-mcp-server --transport sse --port 8000
 
 ## 🧪 Testing & Quality
 
-Run the test suite:
+Run the test suite (includes LangChain tool adapter & orchestrator verification):
 ```bash
 uv run pytest -v
 ```
@@ -86,6 +113,7 @@ Run linter and formatter checks:
 ```bash
 uv run ruff check .
 uv run ruff format --check .
+uv run mypy src/
 ```
 
 ---

@@ -1,9 +1,45 @@
-"""Unit and integration tests for FraudScorerOrchestrator."""
+"""Unit and integration tests for FraudScorerOrchestrator and LangChain tools."""
 
 import pytest
 
-from fraud_scorer.agent.orchestrator import FraudScorerOrchestrator
+from fraud_scorer.agent.orchestrator import FraudScorerOrchestrator, is_ollama_available
+from fraud_scorer.agent.tools import get_langchain_fraud_tools
 from fraud_scorer.models.transaction import Transaction
+
+
+def test_langchain_tools_registration() -> None:
+    """Verify that all 4 LangChain tool adapters are properly instantiated."""
+    tools = get_langchain_fraud_tools()
+    tool_names = [t.name for t in tools]
+
+    assert len(tools) == 4
+    assert "check_velocity_tool" in tool_names
+    assert "check_geo_anomaly_tool" in tool_names
+    assert "check_merchant_risk_tool" in tool_names
+    assert "lookup_account_history_tool" in tool_names
+
+
+@pytest.mark.asyncio
+async def test_langchain_tool_execution() -> None:
+    """Verify direct invocation of LangChain tool adapters."""
+    tools = {t.name: t for t in get_langchain_fraud_tools()}
+
+    # Test velocity tool invocation
+    v_tool = tools["check_velocity_tool"]
+    res_v = await v_tool.ainvoke({"account_id": "acc_normal_01", "window_minutes": 60})
+    assert "velocity_risk_score" in res_v
+    assert res_v["account_id"] == "acc_normal_01"
+
+    # Test merchant tool invocation
+    m_tool = tools["check_merchant_risk_tool"]
+    res_m = await m_tool.ainvoke({"merchant_id": "m1", "mcc": "7995"})
+    assert res_m["is_high_risk_mcc"] is True
+
+
+def test_is_ollama_available() -> None:
+    """is_ollama_available should return a boolean without throwing an unhandled exception."""
+    status = is_ollama_available("http://127.0.0.1:9999")
+    assert status is False
 
 
 @pytest.mark.asyncio
@@ -42,7 +78,6 @@ async def test_borderline_transaction_triggers_review() -> None:
     """A transaction with moderate signals should trigger REVIEW."""
     from fraud_scorer.models.transaction import GeoLocation, MerchantInfo, PaymentMethod
 
-    # Account is established, but transaction is $2200 at a standard store
     tx_review = Transaction(
         account_id="acc_normal_01",
         amount=2200.0,

@@ -8,11 +8,15 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     """Application and environment configuration."""
 
-    # LLM Settings
+    # Local Ollama Settings
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:3b"
+    default_llm_provider: Literal["ollama", "mock", "gemini", "anthropic", "openai"] = "ollama"
+
+    # Optional Cloud LLM Keys (fallback or comparison)
     gemini_api_key: str | None = None
     anthropic_api_key: str | None = None
     openai_api_key: str | None = None
-    default_llm_provider: Literal["mock", "gemini", "anthropic", "openai"] = "mock"
 
     # MCP Server Settings
     mcp_server_transport: Literal["stdio", "sse"] = "stdio"
