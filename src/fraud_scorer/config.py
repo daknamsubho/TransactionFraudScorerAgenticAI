@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     api_gateway_port: int = 8000
     enable_cloudflare_tunnel: bool = False
 
+    # SQLite RDBMS Settings
+    sqlite_db_path: str = "src/sqllite/fraud_scorer.db"
+
     # General App Settings
     log_level: str = "INFO"
     environment: Literal["development", "staging", "production"] = "development"
