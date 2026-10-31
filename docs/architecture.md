@@ -2,20 +2,24 @@
 
 ## 1. System Architecture
 
-The **Transaction Fraud Scorer Agentic AI** decomposes fraud evaluation into an **Agentic Reasoning Layer** and a modular **MCP (Model Context Protocol) Tool Layer**.
+The **Transaction Fraud Scorer Agentic AI** decomposes fraud evaluation into a **LangChain-Orchestrated Multi-Agent Reasoning Layer**, a **RAG (Retrieval-Augmented Generation) Knowledge Layer**, and a modular **MCP (Model Context Protocol) Tool Layer**.
 
 ```mermaid
 flowchart TB
- subgraph s1["Transaction Risk Score System"]
-        n4["Fraud Scorer Agent (Orchestrator)"]
+ subgraph s1["Transaction Risk Score System (LangChain Orchestrated)"]
+        n4["Fraud Scorer Agent (LangChain Orchestrator)"]
         n5["Analysis Agent"]
         n6["Data Retrieval Agent"]
         n7["Observability Agent (TBD)"]
         n8["Governance Agent (TBD)"]
   end
+ subgraph subGraphRAG["RAG Layer (LangChain Retrieval)"]
+        Retriever["LangChain Retriever & Embeddings"]
+        VectorDB[("Vector Store (Fraud Policies, Typologies & Cases)")]
+  end
  subgraph subGraph1["MCP Tool Server (Local / Remote)"]
         MCPServer["MCP Server (FastMCP / mcp SDK)"]
-        ToolCall["ToolCall"]
+        ToolCall["LangChain @tool / ToolCall"]
         Tool1["check_velocity"]
         Tool2["check_geo_anomaly"]
         Tool3["check_merchant_risk"]
@@ -35,6 +39,10 @@ flowchart TB
     Tool4 --> MockDB
     n5 --> subGraph1
     n6 --> subGraph1
+    n6 --> subGraphRAG
+    n5 -. Context Augmentation .-> subGraphRAG
+    n9 -. Policy Grounding .-> subGraphRAG
+    Retriever --> VectorDB
     n9 --> n10["Communication Engine"]
 
     n1@{ shape: rect}
@@ -54,61 +62,66 @@ flowchart TB
   - Routing transaction payloads to the `Transaction Risk Score System`.
 
 ### B. Transaction Risk Score System (Multi-Agent Ecosystem)
-An autonomous, coordinated multi-agent workflow managing the end-to-end evaluation lifecycle:
+An autonomous, coordinated multi-agent workflow built on **LangChain** (`langchain`, `langchain-core`, `langchain-ollama`) managing the end-to-end evaluation lifecycle:
 
-1. **Fraud Scorer Agent (Orchestrator)**:
-   - Central coordinator and workflow manager.
+1. **Fraud Scorer Agent (LangChain Orchestrator)** (`src/fraud_scorer/agent/orchestrator.py`):
+   - Central coordinator and workflow manager powered by LangChain `ChatOllama` (and extensible to cloud LLM providers).
    - Decomposes the transaction evaluation plan and delegates tasks to specialized sub-agents.
-   - Manages state, execution dependencies, error handling, and timeout budgets across the agent graph.
+   - Manages message state (`SystemMessage`, `HumanMessage`, `ToolMessage`), tool-calling loops, execution dependencies, and deterministic fallback chains.
 
 2. **Data Retrieval Agent**:
-   - Interfaces with the MCP Tool Server to fetch contextual account and behavioral data.
-   - Invokes tools such as `lookup_account_history` to retrieve account age, prior chargeback records, historical average spend, and trust tiers.
-   - Supplies enriched profile context to downstream evaluation agents.
+   - Interfaces with both the **MCP Tool Server** (structured operational data) and the **RAG Layer** (unstructured/semantic knowledge).
+   - Invokes MCP tools such as `lookup_account_history` to retrieve account age, prior chargeback records, historical average spend, and trust tiers.
+   - Queries the **LangChain Retriever** to fetch relevant historical fraud cases, account notes, and merchant risk advisories from the Vector Store.
+   - Supplies enriched profile and semantic context to downstream evaluation agents.
 
 3. **Analysis Agent**:
    - Specialized in multi-vector fraud signal computation and anomaly detection.
-   - Invokes analytical MCP tools:
+   - Invokes analytical MCP tools wrapped as LangChain `@tool` adapters (`src/fraud_scorer/agent/tools.py`):
      - `check_velocity`: Measures transaction burst frequencies and rapid volume spikes.
      - `check_geo_anomaly`: Calculates haversine distances and flags impossible travel speeds.
      - `check_merchant_risk`: Evaluates high-risk Merchant Category Codes (MCCs) and merchant reputation.
-   - Synthesizes quantitative findings into categorized `RiskFactor` evidence blocks with severity rankings.
+   - Augments quantitative tool outputs with **RAG context** (e.g., known attack typologies and emerging fraud ring patterns) to synthesize categorized `RiskFactor` evidence blocks with severity rankings.
 
 4. **Decision Agent**:
-   - Ingests the enriched data and risk factors from the Analysis and Data Retrieval agents.
-   - Computes the composite normalized risk score (0.0 to 100.0).
-   - Maps scores against policy thresholds to resolve the final disposition (`APPROVE`, `REVIEW`, `DECLINE`).
-   - Produces an explainable, auditable rationale summarizing why the decision was made.
+   - Ingests the enriched profile data, RAG context, and `RiskFactor` evidence from the Analysis and Data Retrieval agents.
+   - Computes the composite normalized risk score (`0.0` to `100.0`).
+   - Grounds the final disposition (`APPROVE`, `REVIEW`, `DECLINE`) against organizational risk policies and compliance thresholds retrieved via the **RAG Layer**.
+   - Produces an explainable, citation-backed, auditable `FraudAssessment` rationale summarizing why the decision was made.
    - Forwards the completed assessment to the `Communication Engine`.
 
 5. **Observability Agent (TBD)**:
-   - *Roadmap component*: Real-time monitoring, telemetry emission, and tracing.
-   - Tracks agent execution latencies, MCP tool invocation counts, model token usage, and evaluation accuracy.
+   - *Roadmap component*: Real-time monitoring, LangChain callback tracing, telemetry emission, and latency tracking.
+   - Tracks agent execution latencies, MCP tool invocation counts, RAG retrieval relevance scores, model token usage, and evaluation accuracy.
    - Emits structured audit logs for compliance and operational health dashboards.
 
 6. **Governance Agent (TBD)**:
    - *Roadmap component*: Policy enforcement, safety guardrails, and regulatory compliance.
    - Ensures zero leakage of unmasked PII or sensitive payment data (e.g., PCI-DSS compliance).
-   - Audits decision rationales against anti-bias, fair lending, and consumer protection guidelines.
+   - Uses RAG-backed regulatory rulebooks to audit decision rationales against anti-bias, fair lending, and consumer protection guidelines.
 
-### C. Egress & Communication Engine
+### C. RAG Layer (LangChain Retrieval & Vector Store)
+- **LangChain Retriever & Embeddings**: Generates dense vector embeddings (e.g., via `OllamaEmbeddings`) for incoming transaction narratives and agent queries.
+- **Vector Store**: Stores and indexes high-dimensional embeddings of unstructured fraud intelligence, organizational policies, and historical incident reports (using lightweight local stores such as ChromaDB.
+
+### D. Egress & Communication Engine
 - **Communication Engine**: Asynchronous notification and dispatch layer that:
   - Delivers the final `FraudAssessment` back to the payment gateway or calling service.
   - Triggers real-time alerts (webhooks, event bus, Slack/email notifications) for transactions flagged for `REVIEW` or `DECLINE`.
   - Dispatches high-risk incidents into analyst review queues and ticketing systems.
 
-### D. MCP Tool Server & Risk Tools (`src/fraud_scorer/mcp/`)
+### E. MCP Tool Server & Risk Tools (`src/fraud_scorer/mcp/`)
 - Implements the open **Model Context Protocol (MCP)** using `mcp.server.mcpserver.MCPServer`.
 - Exposes standardized tool endpoints (`check_velocity`, `check_geo_anomaly`, `check_merchant_risk`, `lookup_account_history`).
 - Operates over both `stdio` (in-process child execution) and `sse` (standalone HTTP/SSE microservice).
 - Provides tool introspection (`tools/list`) and dynamic execution (`tools/call`).
 
-### E. Data & Feature Providers
+### F. Data & Feature Providers
 - Data storage and feature store abstractions backing the MCP tools.
 - Maintains customer account baselines, historical transaction logs, geographical coordinates, and merchant MCC risk registries.
 - Uses an in-memory/mock repository (`MockDB`) for local development and CI testing, with interfaces ready for production data stores (Redis, DynamoDB, PostgreSQL, Snowflake/BigQuery).
 
-### F. Domain Models & Contracts (`src/fraud_scorer/models/`)
+### G. Domain Models & Contracts (`src/fraud_scorer/models/`)
 - Strict Pydantic v2 domain schemas validating:
   - `Transaction`, `GeoLocation`, `PaymentMethod`, `MerchantInfo`.
   - `RiskFactor` with category, severity, contribution score, and evidence details.
@@ -116,7 +129,56 @@ An autonomous, coordinated multi-agent workflow managing the end-to-end evaluati
 
 ---
 
-## 3. Risk Scoring & Decision Taxonomy
+## 3. How LangChain is Applied in the Architecture
+
+**LangChain** serves as the cognitive backbone and orchestration framework across the `Transaction Risk Score System`:
+
+1. **LLM Abstraction & Local/Cloud Model Portability**:
+   - The `FraudScorerOrchestrator` uses `ChatOllama` (`langchain-ollama`) to run tool-capable local models (such as `llama3.2:3b`, `mistral`, or `qwen2.5`) with zero external API data exposure.
+   - Because agents are built on `langchain-core` interfaces (`BaseChatModel`, `Runnable`), swapping between local Ollama models and cloud providers (Gemini, Anthropic Claude) requires only a configuration change.
+
+2. **MCP-to-LangChain Tool Binding (`src/fraud_scorer/agent/tools.py`)**:
+   - Domain risk tools exposed by the `MCP Server` are wrapped with LangChain's `@tool` decorator (`BaseTool`), automatically generating JSON Schema definitions from Python type annotations and docstrings.
+   - The `Analysis Agent` and `Data Retrieval Agent` bind these tools directly to the model via `llm.bind_tools(tools)`, enabling autonomous multi-step `ToolCall` selection and parallel tool execution.
+
+3. **Prompt Engineering & Conversation State Management (`src/fraud_scorer/agent/prompts.py`)**:
+   - Standardized prompt templates (`FRAUD_ANALYST_SYSTEM_PROMPT`, `TRANSACTION_EVALUATION_TEMPLATE`) construct structured sequences of `SystemMessage`, `HumanMessage`, `AIMessage`, and `ToolMessage` objects.
+   - During the iterative reasoning loop, tool outputs are serialized into `ToolMessage` payloads correlated by `tool_call_id` so the LLM can synthesize multi-tool evidence before handing off to the `Decision Agent`.
+
+4. **Structured Output Enforcement & Resilient Fallbacks**:
+   - LangChain integrates directly with our Pydantic v2 schemas (`FraudAssessment`, `RiskFactor`) to validate agent outputs and prevent malformed responses.
+   - Built-in fallback execution ensures high availability: if the Ollama LLM service times out or is unreachable, the orchestrator transparently falls back to a deterministic LangChain tool-invocation pipeline so transaction scoring never blocks payment checkout.
+
+---
+
+## 4. How RAG (Retrieval-Augmented Generation) is Applied
+
+While **MCP Tools** query *structured, real-time operational features* (e.g., exact transaction counts in the last 60 minutes, haversine distance in km), **RAG** equips the agents with *unstructured, semantic domain knowledge* and *historical precedent*.
+
+### A. Knowledge Indexed in the Vector Store
+1. **Historical Fraud Cases & Typologies**:
+   - Past confirmed fraud incidents, chargeback dispute narratives, and synthetic fraud ring signatures (e.g., *"card-testing micro-transactions followed by high-value digital goods MCC 5816/7995 purchases"*).
+2. **Dynamic Risk Policies & Playbooks**:
+   - Internal underwriting guidelines, regional step-up authentication rules, MCC-specific scrutiny policies, and seasonal travel/holiday exception rules.
+3. **Regulatory & Compliance Guardrails**:
+   - PCI-DSS handling rules, regional consumer protection guidelines, and explainability requirements for adverse action notices.
+
+### B. End-to-End RAG Execution Flow Across Agents
+1. **Contextual Query Formulation (`Data Retrieval Agent`)**:
+   - When a `Transaction` arrives from the `API Gateway`, the `Data Retrieval Agent` converts key transaction attributes (merchant MCC, country corridor, payment method, amount tier, and initial anomaly indicators) into a semantic query.
+   - Using the **LangChain Retriever** (`VectorStoreRetriever`), it performs similarity search (`k` nearest neighbors) against the `Vector Store` alongside its MCP `lookup_account_history` call.
+2. **Pattern Matching & Context Augmentation (`Analysis Agent`)**:
+   - The `Analysis Agent` combines deterministic metrics from MCP tools (`check_velocity`, `check_geo_anomaly`, `check_merchant_risk`) with the retrieved RAG documents.
+   - *Example*: Even if a transaction's velocity is just below a hard static cutoff, RAG retrieval can surface a matching *emerging fraud typology* for that specific merchant category and geo corridor, allowing the `Analysis Agent` to elevate the `RiskFactor` severity appropriately.
+3. **Policy-Grounded Decisioning & Explainability (`Decision Agent`)**:
+   - The `Decision Agent` receives the aggregated `RiskFactor` list plus retrieved policy snippets from the `RAG Layer`.
+   - Grounding the LLM prompt in retrieved policy documents eliminates threshold hallucination, ensures alignment with the latest risk playbooks without retraining the model, and produces an audit-ready `reasoning_summary` that cites both quantitative MCP tool outputs and relevant policy/precedent context.
+4. **Continuous Feedback Loop**:
+   - Confirmed fraud dispositions and analyst review outcomes emitted through the `Communication Engine` can be periodically embedded and indexed back into the `Vector Store`, allowing the system to adapt to new fraud patterns in near real-time.
+
+---
+
+## 5. Risk Scoring & Decision Taxonomy
 
 Every assessment generates an overall risk score normalized between **0.0** and **100.0**:
 
@@ -128,7 +190,7 @@ Every assessment generates an overall risk score normalized between **0.0** and 
 
 ---
 
-## 4. MCP Tool Contracts
+## 6. MCP Tool Contracts
 
 | Tool Name | Key Inputs | Primary Outputs |
 |---|---|---|
@@ -136,3 +198,4 @@ Every assessment generates an overall risk score normalized between **0.0** and 
 | `check_geo_anomaly` | `account_id`, `current_lat`, `current_lon`, `timestamp` | `distance_km`, `elapsed_hours`, `speed_kmh`, `impossible_travel` |
 | `check_merchant_risk` | `merchant_id`, `mcc` | `risk_tier`, `high_risk_category`, `merchant_reputation` |
 | `lookup_account_history` | `account_id` | `account_age_days`, `prior_disputes`, `avg_transaction_amount` |
+
