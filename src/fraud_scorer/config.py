@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     mcp_server_host: str = "127.0.0.1"
     mcp_server_port: int = 8000
 
+    # API Gateway Settings
+    api_gateway_host: str = "0.0.0.0"
+    api_gateway_port: int = 8000
+    enable_cloudflare_tunnel: bool = False
+
     # General App Settings
     log_level: str = "INFO"
     environment: Literal["development", "staging", "production"] = "development"
