@@ -1,15 +1,15 @@
-"""LangChain Tool adapters wrapping MCP fraud scoring tools."""
+"""LangChain Tool adapters wrapping the modular FastMCP fraud scoring tools."""
 
 from typing import Any
 
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool, tool
 
-from fraud_scorer.mcp.tools.risk_tools import (
-    check_geo_anomaly,
-    check_merchant_risk,
-    check_velocity,
-    lookup_account_history,
-)
+from fraud_scorer.mcp.tools.check_geo_anomaly import check_geo_anomaly
+from fraud_scorer.mcp.tools.check_merchant_risk import check_merchant_risk
+from fraud_scorer.mcp.tools.check_velocity import check_velocity
+from fraud_scorer.mcp.tools.lookup_account_history import lookup_account_history
 
 
 @tool
@@ -68,10 +68,15 @@ def lookup_account_history_tool(account_id: str) -> dict[str, Any]:
 
 
 def get_langchain_fraud_tools() -> list[BaseTool]:
-    """Return all LangChain tool adapters for MCP fraud scoring."""
+    """Return all LangChain tool adapters for the FastMCP fraud scoring tools."""
     return [
         check_velocity_tool,
         check_geo_anomaly_tool,
         check_merchant_risk_tool,
         lookup_account_history_tool,
     ]
+
+
+def configure_langchain_with_mcp_tools(llm: BaseChatModel) -> Runnable[Any, Any]:
+    """Bind all FastMCP fraud scoring tools to a LangChain BaseChatModel instance."""
+    return llm.bind_tools(get_langchain_fraud_tools())
