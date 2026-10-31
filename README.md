@@ -64,39 +64,75 @@ See [docs/architecture.md](./docs/architecture.md) for full technical documentat
 
 ## 🚀 Quickstart
 
-### Option A: Run in Google Colab (One-Click)
-Open [`notebooks/colab_setup_and_run.ipynb`](./notebooks/colab_setup_and_run.ipynb) directly in Google Colab:
-- Automatically installs Ollama and launches the background daemon.
-- Pulls `llama3.2:3b`.
-- Runs the LangChain agent and evaluates sample transactions interactively.
-- See [`notebooks/README.md`](./notebooks/README.md) for details.
+### 1. Python Environment Setup (Step-by-Step)
 
-### Option B: Run Locally with `uv`
+#### Option A: Using `uv` (Recommended)
 ```bash
-# 1. Clone repository
-git clone https://github.com/daknamsubho/TransactionFraudScorerAgenticAI.git
+# 1. Install uv (if not already installed)
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2. Clone the repository
+git clone -b feature/local_models https://github.com/daknamsubho/TransactionFraudScorerAgenticAI.git
 cd TransactionFraudScorerAgenticAI
 
-# 2. Sync dependencies
+# 3. Create .venv and install all dependencies (fraud_scorer, api_gateway, web_client)
 uv sync
 
-# 3. Configure environment
-cp .env.example .env
-
-# 4. (Optional) If you have Ollama installed locally:
-# ollama serve &
-# ollama pull llama3.2:3b
-
-# 5. Run the Agent Demo
-uv run fraud-scorer-agent --demo
+# 4. (Optional) Activate the virtual environment
+source .venv/bin/activate
 ```
 
-### Option C: Run MCP Server Standalone
+#### Option B: Using Standard Python `venv` & `pip`
 ```bash
-# Run over stdio (default)
-uv run fraud-mcp-server
+# 1. Clone the repository
+git clone -b feature/local_models https://github.com/daknamsubho/TransactionFraudScorerAgenticAI.git
+cd TransactionFraudScorerAgenticAI
 
-# Or run over SSE on port 8000
+# 2. Create and activate virtual environment
+python3 -m venv .venv
+source .venv/bin/activate
+
+# 3. Upgrade pip and install the project in editable mode
+pip install --upgrade pip
+pip install -e .
+```
+
+---
+
+### 2. Running the Web Client UI Step-by-Step (`src/web_client`)
+
+See [`docs/web-client-setup.md`](./docs/web-client-setup.md) for the full guide.
+
+1. **Start the API Gateway** (either in Google Colab or locally):
+   - **In Google Colab (Remote with Cloudflare Tunnel)**:
+     Open [`notebooks/colab_setup_and_run.ipynb`](./notebooks/colab_setup_and_run.ipynb) in Google Colab and run **Steps 1–3**. Copy the generated `https://*.trycloudflare.com` URL.
+   - **Or Locally on Port `8000`**:
+     ```bash
+     uv run fraud-api-gateway --host 127.0.0.1 --port 8000
+     ```
+
+2. **Start the Web Client Server Locally on Port `3000`**:
+   ```bash
+   uv run fraud-web-client --host 127.0.0.1 --port 3000
+   ```
+
+3. **Open the Web Client in Your Browser**:
+   - Open [`http://127.0.0.1:3000`](http://127.0.0.1:3000).
+   - Paste your **API Gateway Base URL** (`https://*.trycloudflare.com` from Colab, or `http://localhost:8000` if running locally) into the **API Gateway Base URL** input at the top.
+   - Click **Check Health** to verify connectivity, then click **Connect WebSocket** (status badge turns `CONNECTED`).
+   - Click **Load Card Preset** or **Load ACH Preset**, then click **Submit Transaction for Fraud Scoring**.
+   - View the immediate REST response on the left and the real-time **WebSocket Event** (`Transaction ID`, `Username`, `Amount`, `Score`, `Status`, and full `score_details`) on the right.
+   - Click **Accept** or **Reject** on any transaction row to send a decision to `POST /api/v1/transactions/decision`.
+
+---
+
+### 3. Run the CLI Agent or MCP Server Standalone
+```bash
+# Run the LangChain + Ollama Fraud Scorer CLI Demo
+uv run fraud-scorer-agent --demo
+
+# Run MCP Server over stdio (default) or SSE on port 8000
+uv run fraud-mcp-server
 uv run fraud-mcp-server --transport sse --port 8000
 ```
 

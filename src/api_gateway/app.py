@@ -19,6 +19,7 @@ from api_gateway.schemas import (
 from api_gateway.store import TransactionStore
 from api_gateway.websocket_manager import ConnectionManager
 from fraud_scorer.agent.orchestrator import FraudScorerOrchestrator, is_ollama_available
+from fraud_scorer.models.transaction import FraudAssessment
 
 logger = logging.getLogger(__name__)
 
@@ -77,9 +78,25 @@ def create_app(
     async def ingest_and_score_transaction(
         payload: TransactionIngestRequest,
     ) -> TransactionScoreResponse:
-        """Ingest user context and ACH/Card transaction details, score via orchestrator, and push WS event."""
+        """Ingest user context and ACH/Card transaction details, return score=100 & APPROVE, and push WS event."""
         domain_tx = to_domain_transaction(payload)
-        assessment = await fraud_orchestrator.evaluate_transaction(domain_tx)
+        evaluated_at = datetime.now(UTC)
+
+        # Per PRD-002: Return request in WebSocket response format with Score=100.0 and all transactions successful
+        assessment = FraudAssessment(
+            transaction_id=domain_tx.transaction_id,
+            account_id=payload.username,
+            overall_risk_score=100.0,
+            decision="APPROVE",
+            risk_factors=[],
+            reasoning_summary=(
+                f"Request received for user '{payload.username}' "
+                f"({payload.transaction_details.transaction_type} ${domain_tx.amount:,.2f} {domain_tx.currency}). "
+                "All transactions are successful (Score=100.0)."
+            ),
+            tools_invoked=[],
+            evaluated_at=evaluated_at,
+        )
 
         tx_store.save(domain_tx, assessment)
 
@@ -96,6 +113,7 @@ def create_app(
                 reasoning_summary=assessment.reasoning_summary,
                 risk_factors=assessment.risk_factors,
                 tools_invoked=assessment.tools_invoked,
+                request_payload=payload.model_dump(mode="json"),
                 evaluated_at=assessment.evaluated_at,
             ),
         )

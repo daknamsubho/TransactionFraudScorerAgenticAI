@@ -2,7 +2,7 @@
 
 import datetime as dt
 from datetime import UTC
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, Field, model_validator
@@ -246,6 +246,10 @@ class ScoreDetails(BaseModel):
     tools_invoked: list[str] = Field(
         default_factory=list,
         description="MCP risk tools invoked by the agent during evaluation.",
+    )
+    request_payload: dict[str, Any] | None = Field(
+        default=None,
+        description="Echoed incoming TransactionIngestRequest payload.",
     )
     evaluated_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(UTC),

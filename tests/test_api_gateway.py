@@ -91,25 +91,25 @@ def test_health_endpoint() -> None:
 
 
 def test_ingest_card_transaction_score() -> None:
-    """Verify POST /api/v1/transactions/score scores a CARD transaction."""
+    """Verify POST /api/v1/transactions/score scores a CARD transaction with score=100.0 and APPROVE."""
     client = TestClient(create_app())
     response = client.post("/api/v1/transactions/score", json=_sample_card_payload())
     assert response.status_code == 200
     data = response.json()
     assert data["transaction_id"].startswith("tx_")
-    assert 0.0 <= data["score"] <= 100.0
-    assert data["status"] in ("APPROVE", "REVIEW", "DECLINE")
+    assert data["score"] == 100.0
+    assert data["status"] == "APPROVE"
 
 
 def test_ingest_ach_transaction_score() -> None:
-    """Verify POST /api/v1/transactions/score scores an ACH transaction."""
+    """Verify POST /api/v1/transactions/score scores an ACH transaction with score=100.0 and APPROVE."""
     client = TestClient(create_app())
     response = client.post("/api/v1/transactions/score", json=_sample_ach_payload())
     assert response.status_code == 200
     data = response.json()
     assert data["transaction_id"].startswith("tx_")
-    assert data["score"] >= 70.0
-    assert data["status"] == "DECLINE"
+    assert data["score"] == 100.0
+    assert data["status"] == "APPROVE"
 
 
 def test_ingest_validation_error_missing_rail_details() -> None:
@@ -139,9 +139,11 @@ def test_websocket_receives_scored_transaction_event() -> None:
         assert event["transaction_id"] == score_json["transaction_id"]
         assert event["username"] == "jdoe_99"
         assert event["amount"] == 2200.0
-        assert event["score"] == score_json["score"]
+        assert event["score"] == 100.0
         assert "score_details" in event
-        assert event["score_details"]["status"] == score_json["status"]
+        assert event["score_details"]["status"] == "APPROVE"
+        assert event["score_details"]["request_payload"]["username"] == "jdoe_99"
+        assert event["score_details"]["request_payload"]["transaction_details"]["amount"] == 2200.0
         assert isinstance(event["score_details"]["risk_factors"], list)
         assert isinstance(event["score_details"]["reasoning_summary"], str)
 

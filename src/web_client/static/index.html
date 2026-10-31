@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transaction Fraud Scorer — Agentic AI Web Client</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-brand">
+      <h1>Transaction Fraud Scorer</h1>
+      <p class="subtitle">Real-Time Agentic AI Transaction Ingestion &amp; WebSocket Stream Console</p>
+    </div>
+
+    <section class="gateway-config-bar" aria-label="API Gateway Configuration">
+      <div class="field config-url-field">
+        <label for="gateway-url">API Gateway Base URL</label>
+        <span id="gateway-url-hint" class="hint">Format: http://localhost:8000 or https://*.trycloudflare.com</span>
+        <input
+          type="url"
+          id="gateway-url"
+          name="gateway_url"
+          required
+          value="http://localhost:8000"
+          placeholder="https://your-tunnel.trycloudflare.com"
+          aria-describedby="gateway-url-hint"
+          aria-errormessage="gateway-url-error"
+        >
+        <div id="gateway-url-error" class="error-msg">
+          <span aria-hidden="true">❌</span> Please enter a valid http:// or https:// Gateway URL.
+        </div>
+      </div>
+
+      <div class="field config-user-field">
+        <label for="ws-username-filter">WS Username Filter (Optional)</label>
+        <span id="ws-user-hint" class="hint">Leave blank for all users</span>
+        <input
+          type="text"
+          id="ws-username-filter"
+          name="ws_username_filter"
+          placeholder="e.g. jdoe_99"
+          aria-describedby="ws-user-hint"
+        >
+      </div>
+
+      <div class="config-actions">
+        <button type="button" id="btn-connect-ws" class="btn btn-primary">Connect WebSocket</button>
+        <button type="button" id="btn-disconnect-ws" class="btn btn-secondary" disabled>Disconnect</button>
+        <button type="button" id="btn-check-health" class="btn btn-outline">Check Health</button>
+      </div>
+
+      <div class="status-indicators">
+        <div class="status-pill">
+          <span class="status-label">WebSocket:</span>
+          <span id="ws-status-badge" class="badge badge-neutral">Disconnected</span>
+        </div>
+        <div class="status-pill">
+          <span class="status-label">Derived WS Endpoint:</span>
+          <code id="derived-ws-url">ws://localhost:8000/ws/transactions/events</code>
+        </div>
+        <div id="health-status-text" class="health-status-text" aria-live="polite"></div>
+      </div>
+    </section>
+  </header>
+
+  <main class="main-grid">
+    <!-- Left Column: REST Transaction Ingestion Form -->
+    <section class="panel form-panel" aria-labelledby="ingest-heading">
+      <div class="panel-header">
+        <h2 id="ingest-heading">Send Transaction (`POST /api/v1/transactions/score`)</h2>
+        <div class="preset-buttons">
+          <button type="button" id="btn-preset-card" class="btn btn-sm btn-outline">Load Card Preset</button>
+          <button type="button" id="btn-preset-ach" class="btn btn-sm btn-outline">Load ACH Preset</button>
+        </div>
+      </div>
+
+      <form id="transaction-form">
+        <fieldset class="fieldset-group">
+          <legend>User &amp; Session Context</legend>
+          <div class="form-row">
+            <div class="field">
+              <label for="tx-username">Username</label>
+              <span id="tx-username-hint" class="hint">1–128 characters</span>
+              <input
+                type="text"
+                id="tx-username"
+                name="username"
+                required
+                minlength="1"
+                maxlength="128"
+                value="jdoe_99"
+                aria-describedby="tx-username-hint"
+                aria-errormessage="tx-username-error"
+              >
+              <div id="tx-username-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Username is required.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="tx-datetime">Transaction Datetime (ISO)</label>
+              <span id="tx-datetime-hint" class="hint">UTC ISO-8601 timestamp</span>
+              <input
+                type="text"
+                id="tx-datetime"
+                name="datetime"
+                required
+                aria-describedby="tx-datetime-hint"
+                aria-errormessage="tx-datetime-error"
+              >
+              <div id="tx-datetime-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Valid ISO datetime required.
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="tx-ip">IP Address</label>
+              <span id="tx-ip-hint" class="hint">Origin IPv4 or IPv6</span>
+              <input
+                type="text"
+                id="tx-ip"
+                name="ip"
+                required
+                value="198.51.100.42"
+                aria-describedby="tx-ip-hint"
+                aria-errormessage="tx-ip-error"
+              >
+              <div id="tx-ip-error" class="error-msg">
+                <span aria-hidden="true">❌</span> IP address is required.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="tx-device-id">Device ID (Optional)</label>
+              <span id="tx-device-hint" class="hint">Device fingerprint</span>
+              <input
+                type="text"
+                id="tx-device-id"
+                name="device_id"
+                value="dev_macbook_pro_91a"
+                aria-describedby="tx-device-hint"
+              >
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="fieldset-group">
+          <legend>Geographic Location</legend>
+          <div class="form-row">
+            <div class="field">
+              <label for="loc-latitude">Latitude</label>
+              <span id="loc-lat-hint" class="hint">-90.0 to 90.0</span>
+              <input
+                type="number"
+                id="loc-latitude"
+                name="latitude"
+                step="any"
+                min="-90"
+                max="90"
+                required
+                value="37.7749"
+                aria-describedby="loc-lat-hint"
+                aria-errormessage="loc-lat-error"
+              >
+              <div id="loc-lat-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Latitude must be between -90 and 90.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="loc-longitude">Longitude</label>
+              <span id="loc-lon-hint" class="hint">-180.0 to 180.0</span>
+              <input
+                type="number"
+                id="loc-longitude"
+                name="longitude"
+                step="any"
+                min="-180"
+                max="180"
+                required
+                value="-122.4194"
+                aria-describedby="loc-lon-hint"
+                aria-errormessage="loc-lon-error"
+              >
+              <div id="loc-lon-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Longitude must be between -180 and 180.
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="loc-city">City</label>
+              <input type="text" id="loc-city" name="city" value="San Francisco">
+            </div>
+            <div class="field">
+              <label for="loc-state">State</label>
+              <input type="text" id="loc-state" name="state" value="CA">
+            </div>
+            <div class="field">
+              <label for="loc-country">Country (ISO)</label>
+              <span id="loc-country-hint" class="hint">2–3 chars (e.g. US)</span>
+              <input
+                type="text"
+                id="loc-country"
+                name="country"
+                required
+                minlength="2"
+                maxlength="3"
+                value="US"
+                aria-describedby="loc-country-hint"
+                aria-errormessage="loc-country-error"
+              >
+              <div id="loc-country-error" class="error-msg">
+                <span aria-hidden="true">❌</span> 2–3 character country code required.
+              </div>
+            </div>
+            <div class="field">
+              <label for="loc-postal">Postal Code</label>
+              <input type="text" id="loc-postal" name="postal_code" value="94103">
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset class="fieldset-group">
+          <legend>Transaction &amp; Merchant Details</legend>
+          <div class="form-row">
+            <div class="field">
+              <label for="tx-type">Transaction Type</label>
+              <span id="tx-type-hint" class="hint">Select payment rail</span>
+              <select id="tx-type" name="transaction_type" aria-describedby="tx-type-hint">
+                <option value="CARD" selected>CARD (Credit / Debit / Prepaid)</option>
+                <option value="ACH">ACH (Bank Transfer)</option>
+              </select>
+            </div>
+
+            <div class="field">
+              <label for="tx-amount">Amount</label>
+              <span id="tx-amount-hint" class="hint">Must be &gt; 0</span>
+              <input
+                type="number"
+                id="tx-amount"
+                name="amount"
+                step="0.01"
+                min="0.01"
+                required
+                value="1450.00"
+                aria-describedby="tx-amount-hint"
+                aria-errormessage="tx-amount-error"
+              >
+              <div id="tx-amount-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Enter a positive transaction amount.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="tx-currency">Currency</label>
+              <span id="tx-currency-hint" class="hint">3-letter ISO code</span>
+              <input
+                type="text"
+                id="tx-currency"
+                name="currency"
+                required
+                minlength="3"
+                maxlength="3"
+                value="USD"
+                aria-describedby="tx-currency-hint"
+                aria-errormessage="tx-currency-error"
+              >
+              <div id="tx-currency-error" class="error-msg">
+                <span aria-hidden="true">❌</span> 3-letter currency code required.
+              </div>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="merch-id">Merchant ID</label>
+              <input type="text" id="merch-id" name="merchant_id" required value="merch_88412">
+            </div>
+            <div class="field">
+              <label for="merch-name">Merchant Name</label>
+              <input type="text" id="merch-name" name="merchant_name" required value="ElectroWorld Online">
+            </div>
+            <div class="field">
+              <label for="merch-mcc">MCC (4 digits)</label>
+              <span id="merch-mcc-hint" class="hint">e.g. 5732, 7995</span>
+              <input
+                type="text"
+                id="merch-mcc"
+                name="mcc"
+                required
+                pattern="[0-9]{4}"
+                value="5732"
+                aria-describedby="merch-mcc-hint"
+                aria-errormessage="merch-mcc-error"
+              >
+              <div id="merch-mcc-error" class="error-msg">
+                <span aria-hidden="true">❌</span> MCC must be exactly 4 digits.
+              </div>
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- Card Details Sub-Section -->
+        <fieldset id="card-details-fieldset" class="fieldset-group rail-fieldset">
+          <legend>Card Transaction Details</legend>
+          <div class="form-row">
+            <div class="field">
+              <label for="card-type">Card Type</label>
+              <select id="card-type" name="card_type">
+                <option value="CREDIT" selected>CREDIT</option>
+                <option value="DEBIT">DEBIT</option>
+                <option value="PREPAID">PREPAID</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="card-network">Card Network</label>
+              <select id="card-network" name="card_network">
+                <option value="VISA" selected>VISA</option>
+                <option value="MASTERCARD">MASTERCARD</option>
+                <option value="AMEX">AMEX</option>
+                <option value="DISCOVER">DISCOVER</option>
+                <option value="OTHER">OTHER</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="card-last-four">Card Last 4 Digits</label>
+              <span id="card-last4-hint" class="hint">4 digits (0–9)</span>
+              <input
+                type="text"
+                id="card-last-four"
+                name="card_last_four"
+                pattern="[0-9]{4}"
+                value="4242"
+                aria-describedby="card-last4-hint"
+                aria-errormessage="card-last4-error"
+              >
+              <div id="card-last4-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Must be 4 digits.
+              </div>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field checkbox-field">
+              <label>
+                <input type="checkbox" id="card-present" name="is_card_present">
+                Card Physically Present (POS)
+              </label>
+            </div>
+            <div class="field checkbox-field">
+              <label>
+                <input type="checkbox" id="card-cvv" name="cvv_verified" checked>
+                CVV Verified
+              </label>
+            </div>
+            <div class="field">
+              <label for="card-avs">AVS Result</label>
+              <input type="text" id="card-avs" name="avs_result" value="Y" maxlength="4">
+            </div>
+          </div>
+        </fieldset>
+
+        <!-- ACH Details Sub-Section -->
+        <fieldset id="ach-details-fieldset" class="fieldset-group rail-fieldset hidden">
+          <legend>ACH Bank Transfer Details</legend>
+          <div class="form-row">
+            <div class="field">
+              <label for="ach-routing">ABA Routing Number</label>
+              <span id="ach-routing-hint" class="hint">9 digits</span>
+              <input
+                type="text"
+                id="ach-routing"
+                name="routing_number"
+                pattern="[0-9]{9}"
+                value="021000021"
+                aria-describedby="ach-routing-hint"
+                aria-errormessage="ach-routing-error"
+              >
+              <div id="ach-routing-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Must be a 9-digit routing number.
+              </div>
+            </div>
+            <div class="field">
+              <label for="ach-last-four">Account Last 4 Digits</label>
+              <span id="ach-last4-hint" class="hint">4 digits</span>
+              <input
+                type="text"
+                id="ach-last-four"
+                name="account_last_four"
+                pattern="[0-9]{4}"
+                value="9876"
+                aria-describedby="ach-last4-hint"
+                aria-errormessage="ach-last4-error"
+              >
+              <div id="ach-last4-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Must be 4 digits.
+              </div>
+            </div>
+            <div class="field">
+              <label for="ach-account-type">Account Type</label>
+              <select id="ach-account-type" name="account_type">
+                <option value="CHECKING" selected>CHECKING</option>
+                <option value="SAVINGS">SAVINGS</option>
+                <option value="BUSINESS">BUSINESS</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="ach-sec-code">SEC Code</label>
+              <select id="ach-sec-code" name="sec_code">
+                <option value="WEB" selected>WEB</option>
+                <option value="PPD">PPD</option>
+                <option value="CCD">CCD</option>
+                <option value="TEL">TEL</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="ach-direction">Direction</label>
+              <select id="ach-direction" name="direction">
+                <option value="DEBIT" selected>DEBIT</option>
+                <option value="CREDIT">CREDIT</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="ach-bank-name">Bank Name</label>
+              <input type="text" id="ach-bank-name" name="bank_name" value="Chase Bank">
+            </div>
+          </div>
+        </fieldset>
+
+        <div class="form-actions">
+          <button type="submit" id="btn-submit-tx" class="btn btn-primary btn-lg">
+            Submit Transaction for Fraud Scoring
+          </button>
+        </div>
+      </form>
+
+      <div class="rest-response-box">
+        <h3>Latest REST Score Response (`POST /api/v1/transactions/score`)</h3>
+        <pre id="rest-score-output" class="code-output">No transaction submitted yet.</pre>
+      </div>
+    </section>
+
+    <!-- Right Column: Live WebSocket Event Feed & Analyst Decision Panel -->
+    <section class="panel stream-panel" aria-labelledby="ws-stream-heading">
+      <div class="panel-header">
+        <h2 id="ws-stream-heading">Real-Time WebSocket Events (`/ws/transactions/events`)</h2>
+        <button type="button" id="btn-clear-events" class="btn btn-sm btn-outline">Clear Events</button>
+      </div>
+
+      <div tabindex="0" role="region" aria-labelledby="ws-table-caption" class="table-wrapper">
+        <table id="ws-events-table">
+          <caption id="ws-table-caption" class="sr-only">Live transaction score events received over WebSocket</caption>
+          <thead>
+            <tr>
+              <th>Transaction ID</th>
+              <th>Username</th>
+              <th>Amount</th>
+              <th>Score</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ws-events-tbody">
+            <tr id="ws-empty-row">
+              <td colspan="6" class="empty-cell">
+                Waiting for WebSocket events... Connect to the Gateway and submit a transaction.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Analyst Decision Section (`POST /api/v1/transactions/decision`) -->
+      <section class="decision-section" aria-labelledby="decision-heading">
+        <h3 id="decision-heading">Submit Transaction Decision (`POST /api/v1/transactions/decision`)</h3>
+        <form id="decision-form" class="decision-form">
+          <div class="form-row">
+            <div class="field">
+              <label for="decision-tx-id">Transaction ID</label>
+              <span id="decision-tx-hint" class="hint">Click a row above or enter ID</span>
+              <input
+                type="text"
+                id="decision-tx-id"
+                name="transaction_id"
+                required
+                placeholder="tx_..."
+                aria-describedby="decision-tx-hint"
+                aria-errormessage="decision-tx-error"
+              >
+              <div id="decision-tx-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Transaction ID is required.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="decision-reason">Reason</label>
+              <span id="decision-reason-hint" class="hint">Audit rationale for Accept / Reject</span>
+              <input
+                type="text"
+                id="decision-reason"
+                name="reason"
+                required
+                value="Verified by analyst in WebUI console."
+                aria-describedby="decision-reason-hint"
+                aria-errormessage="decision-reason-error"
+              >
+              <div id="decision-reason-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Reason is required.
+              </div>
+            </div>
+          </div>
+
+          <div class="decision-buttons">
+            <button type="button" id="btn-accept-tx" class="btn btn-success">Accept Transaction</button>
+            <button type="button" id="btn-reject-tx" class="btn btn-danger">Reject Transaction</button>
+          </div>
+        </form>
+        <pre id="decision-response-output" class="code-output">No decision submitted yet.</pre>
+      </section>
+
+      <!-- Selected Event Details Inspector -->
+      <section class="inspector-section" aria-labelledby="inspector-heading">
+        <h3 id="inspector-heading">WebSocket Event Details (`score_details` &amp; Echoed Request)</h3>
+        <pre id="ws-event-inspector" class="code-output">Select or receive a WebSocket event to inspect its full payload.</pre>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
