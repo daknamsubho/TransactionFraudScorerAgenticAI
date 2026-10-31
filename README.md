@@ -111,8 +111,16 @@ See [`docs/web-client-setup.md`](./docs/web-client-setup.md) for the full guide.
      uv run fraud-api-gateway --host 127.0.0.1 --port 8000
      ```
 
-2. **Start the Web Client Server Locally on Port `3000`**:
+2. **Start / Stop the Web Client Server Locally on Port `3000`**:
    ```bash
+   # Start in the background via the helper script
+   ./src/web_client/webclient.sh start --port 3000
+
+   # Check status or stop the server
+   ./src/web_client/webclient.sh status
+   ./src/web_client/webclient.sh stop
+
+   # Or run in the foreground via uv
    uv run fraud-web-client --host 127.0.0.1 --port 3000
    ```
 

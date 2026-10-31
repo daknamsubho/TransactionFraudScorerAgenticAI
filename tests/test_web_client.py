@@ -1,32 +1,45 @@
-"""Unit tests for the WebUI client package (src/web_client)."""
+"""Unit tests for the two-page WebUI client package (src/web_client)."""
 
 from web_client import get_static_dir
 
 
 def test_web_client_separated_files_exist() -> None:
-    """Verify separated index.html, styles.css, and app.js exist in src/web_client/static."""
+    """Verify separated index.html, queue.html, styles.css, and app.js exist in src/web_client/static."""
     static_dir = get_static_dir()
     assert static_dir.is_dir()
 
     index_html = static_dir / "index.html"
+    queue_html = static_dir / "queue.html"
     styles_css = static_dir / "styles.css"
     app_js = static_dir / "app.js"
 
     assert index_html.is_file()
+    assert queue_html.is_file()
     assert styles_css.is_file()
     assert app_js.is_file()
 
 
-def test_index_html_links_css_and_js_and_has_gateway_config() -> None:
-    """Verify index.html links external CSS/JS and provides configurable API Gateway URL input."""
-    html = (get_static_dir() / "index.html").read_text(encoding="utf-8")
+def test_submit_page_and_queue_page_structure() -> None:
+    """Verify index.html has the transaction submit form and queue.html has the WebSocket queue & decision form."""
+    index_html = (get_static_dir() / "index.html").read_text(encoding="utf-8")
+    queue_html = (get_static_dir() / "queue.html").read_text(encoding="utf-8")
 
-    assert '<link rel="stylesheet" href="styles.css">' in html
-    assert '<script src="app.js" defer></script>' in html
-    assert 'id="gateway-url"' in html
-    assert 'id="transaction-form"' in html
-    assert 'id="ws-events-table"' in html
-    assert 'id="decision-form"' in html
+    # Page 1: Submit Transaction (index.html)
+    assert '<link rel="stylesheet" href="styles.css">' in index_html
+    assert '<script src="app.js" defer></script>' in index_html
+    assert 'href="queue.html"' in index_html
+    assert 'id="gateway-url"' in index_html
+    assert 'id="transaction-form"' in index_html
+    assert 'id="ws-events-table"' not in index_html
+
+    # Page 2: Decision Queue (queue.html)
+    assert '<link rel="stylesheet" href="styles.css">' in queue_html
+    assert '<script src="app.js" defer></script>' in queue_html
+    assert 'href="index.html"' in queue_html
+    assert 'id="gateway-url"' in queue_html
+    assert 'id="ws-events-table"' in queue_html
+    assert 'id="decision-form"' in queue_html
+    assert 'id="transaction-form"' not in queue_html
 
 
 def test_styles_css_uses_user_invalid_and_container_queries() -> None:

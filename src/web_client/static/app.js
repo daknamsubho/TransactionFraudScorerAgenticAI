@@ -1,23 +1,20 @@
 /**
- * Transaction Fraud Scorer — Vanilla JS Web Client
- * Handles configurable API Gateway URLs, WebSocket event streaming (/ws/transactions/events),
- * REST transaction ingestion (POST /api/v1/transactions/score), and Accept/Reject decisions
- * (POST /api/v1/transactions/decision).
+ * Transaction Fraud Scorer — Vanilla JS Web Client (Multi-Page Controller)
+ * Page 1 (index.html): Submit ACH & Card Transactions via REST (POST /api/v1/transactions/score)
+ * Page 2 (queue.html): Real-Time WebSocket Event Queue (/ws/transactions/events) &
+ *                      Accept/Reject Decisions (POST /api/v1/transactions/decision)
  */
 
 (() => {
   const STORAGE_KEY_GATEWAY_URL = "fraud_scorer_gateway_url";
 
-  // DOM References
+  // Shared DOM References (present on both index.html and queue.html)
   const gatewayUrlInput = document.getElementById("gateway-url");
-  const wsUsernameFilterInput = document.getElementById("ws-username-filter");
-  const btnConnectWs = document.getElementById("btn-connect-ws");
-  const btnDisconnectWs = document.getElementById("btn-disconnect-ws");
   const btnCheckHealth = document.getElementById("btn-check-health");
-  const wsStatusBadge = document.getElementById("ws-status-badge");
-  const derivedWsUrlCode = document.getElementById("derived-ws-url");
   const healthStatusText = document.getElementById("health-status-text");
+  const derivedScoreUrlCode = document.getElementById("derived-score-url");
 
+  // Page 1 (Submit Transaction) DOM References
   const txForm = document.getElementById("transaction-form");
   const txTypeSelect = document.getElementById("tx-type");
   const cardFieldset = document.getElementById("card-details-fieldset");
@@ -26,6 +23,12 @@
   const btnPresetAch = document.getElementById("btn-preset-ach");
   const restScoreOutput = document.getElementById("rest-score-output");
 
+  // Page 2 (Decision Queue) DOM References
+  const wsUsernameFilterInput = document.getElementById("ws-username-filter");
+  const btnConnectWs = document.getElementById("btn-connect-ws");
+  const btnDisconnectWs = document.getElementById("btn-disconnect-ws");
+  const wsStatusBadge = document.getElementById("ws-status-badge");
+  const derivedWsUrlCode = document.getElementById("derived-ws-url");
   const wsEventsTbody = document.getElementById("ws-events-tbody");
   const btnClearEvents = document.getElementById("btn-clear-events");
   const wsEventInspector = document.getElementById("ws-event-inspector");
@@ -104,9 +107,9 @@
     return { init };
   })();
 
-  // 2. Gateway URL & WebSocket URL Derivation
+  // 2. Gateway URL & Endpoint Derivation
   function getNormalizedBaseUrl() {
-    const raw = (gatewayUrlInput.value || "http://localhost:8000").trim();
+    const raw = (gatewayUrlInput && gatewayUrlInput.value ? gatewayUrlInput.value : "http://localhost:8000").trim();
     return raw.replace(/\/+$/, "");
   }
 
@@ -119,30 +122,39 @@
       wsBase = "ws://" + baseUrl.slice("http://".length);
     }
     const wsUrl = new URL(`${wsBase}/ws/transactions/events`);
-    const usernameFilter = (wsUsernameFilterInput.value || "").trim();
+    const usernameFilter = wsUsernameFilterInput ? (wsUsernameFilterInput.value || "").trim() : "";
     if (usernameFilter) {
       wsUrl.searchParams.set("username", usernameFilter);
     }
     return wsUrl.toString();
   }
 
-  function updateDerivedWsDisplay() {
-    try {
-      const wsUrl = buildWebSocketUrl();
-      derivedWsUrlCode.textContent = wsUrl;
-      localStorage.setItem(STORAGE_KEY_GATEWAY_URL, getNormalizedBaseUrl());
-    } catch {
-      derivedWsUrlCode.textContent = "Invalid Gateway Base URL";
+  function updateDerivedEndpointsDisplay() {
+    const baseUrl = getNormalizedBaseUrl();
+    localStorage.setItem(STORAGE_KEY_GATEWAY_URL, baseUrl);
+
+    if (derivedScoreUrlCode) {
+      derivedScoreUrlCode.textContent = `${baseUrl}/api/v1/transactions/score`;
+    }
+    if (derivedWsUrlCode) {
+      try {
+        derivedWsUrlCode.textContent = buildWebSocketUrl();
+      } catch {
+        derivedWsUrlCode.textContent = "Invalid Gateway Base URL";
+      }
     }
   }
 
-  // 3. WebSocket Connection Management
+  // 3. WebSocket Connection Management (Page 2: queue.html)
   function setWsBadgeState(stateText, badgeClass) {
+    if (!wsStatusBadge) return;
     wsStatusBadge.textContent = stateText;
     wsStatusBadge.className = `badge ${badgeClass}`;
   }
 
   function connectWebSocket() {
+    if (!wsEventsTbody) return;
+
     if (activeSocket) {
       activeSocket.close();
       activeSocket = null;
@@ -151,36 +163,40 @@
     let wsUrl;
     try {
       wsUrl = buildWebSocketUrl();
-    } catch (err) {
+    } catch {
       setWsBadgeState("Invalid URL", "badge-danger");
       return;
     }
 
     setWsBadgeState("Connecting...", "badge-warning");
-    derivedWsUrlCode.textContent = wsUrl;
+    if (derivedWsUrlCode) {
+      derivedWsUrlCode.textContent = wsUrl;
+    }
 
     const socket = new WebSocket(wsUrl);
     activeSocket = socket;
 
     socket.addEventListener("open", () => {
       setWsBadgeState("Connected", "badge-success");
-      btnConnectWs.textContent = "Reconnect WebSocket";
-      btnDisconnectWs.disabled = false;
+      if (btnConnectWs) btnConnectWs.textContent = "Reconnect WebSocket";
+      if (btnDisconnectWs) btnDisconnectWs.disabled = false;
     });
 
     socket.addEventListener("message", (event) => {
       try {
         const payload = JSON.parse(event.data);
         handleIncomingWsEvent(payload);
-      } catch (err) {
-        wsEventInspector.textContent = `Raw WebSocket message: ${event.data}`;
+      } catch {
+        if (wsEventInspector) {
+          wsEventInspector.textContent = `Raw WebSocket message: ${event.data}`;
+        }
       }
     });
 
     socket.addEventListener("close", () => {
       if (activeSocket === socket) {
         setWsBadgeState("Disconnected", "badge-neutral");
-        btnDisconnectWs.disabled = true;
+        if (btnDisconnectWs) btnDisconnectWs.disabled = true;
         activeSocket = null;
       }
     });
@@ -196,10 +212,10 @@
       activeSocket = null;
     }
     setWsBadgeState("Disconnected", "badge-neutral");
-    btnDisconnectWs.disabled = true;
+    if (btnDisconnectWs) btnDisconnectWs.disabled = true;
   }
 
-  // 4. Render Incoming WebSocket Events
+  // 4. Render Incoming WebSocket Events (Page 2: queue.html)
   function statusToBadgeClass(status) {
     if (status === "APPROVE" || status === "ACCEPTED") return "badge-success";
     if (status === "REVIEW") return "badge-warning";
@@ -207,6 +223,8 @@
   }
 
   function handleIncomingWsEvent(eventData) {
+    if (!wsEventsTbody) return;
+
     const txId = eventData.transaction_id || "tx_unknown";
     receivedEventsMap.set(txId, eventData);
 
@@ -264,7 +282,8 @@
     btnAcceptRow.textContent = "Accept";
     btnAcceptRow.addEventListener("click", () => {
       selectTransactionEvent(txId);
-      submitDecision(txId, true, decisionReasonInput.value || "Accepted via WebUI quick action.");
+      const reason = decisionReasonInput ? decisionReasonInput.value : "Accepted via WebUI quick action.";
+      submitDecision(txId, true, reason || "Accepted via WebUI quick action.");
     });
 
     const btnRejectRow = document.createElement("button");
@@ -273,7 +292,8 @@
     btnRejectRow.textContent = "Reject";
     btnRejectRow.addEventListener("click", () => {
       selectTransactionEvent(txId);
-      submitDecision(txId, false, decisionReasonInput.value || "Rejected via WebUI quick action.");
+      const reason = decisionReasonInput ? decisionReasonInput.value : "Rejected via WebUI quick action.";
+      submitDecision(txId, false, reason || "Rejected via WebUI quick action.");
     });
 
     actionWrap.append(btnInspect, btnAcceptRow, btnRejectRow);
@@ -286,21 +306,25 @@
   }
 
   function selectTransactionEvent(txId) {
-    decisionTxIdInput.value = txId;
+    if (decisionTxIdInput) {
+      decisionTxIdInput.value = txId;
+    }
     const eventData = receivedEventsMap.get(txId);
-    if (eventData) {
+    if (eventData && wsEventInspector) {
       wsEventInspector.textContent = JSON.stringify(eventData, null, 2);
     }
   }
 
-  // 5. Toggle CARD / ACH Form Sections & Presets
+  // 5. Toggle CARD / ACH Form Sections & Presets (Page 1: index.html)
   function syncPaymentRailVisibility() {
+    if (!txTypeSelect || !cardFieldset || !achFieldset) return;
     const isAch = txTypeSelect.value === "ACH";
     cardFieldset.classList.toggle("hidden", isAch);
     achFieldset.classList.toggle("hidden", !isAch);
   }
 
   function loadCardPreset() {
+    if (!txTypeSelect) return;
     txTypeSelect.value = "CARD";
     syncPaymentRailVisibility();
     document.getElementById("tx-username").value = "jdoe_99";
@@ -327,6 +351,7 @@
   }
 
   function loadAchPreset() {
+    if (!txTypeSelect) return;
     txTypeSelect.value = "ACH";
     syncPaymentRailVisibility();
     document.getElementById("tx-username").value = "jdoe_99";
@@ -350,7 +375,7 @@
     document.getElementById("ach-bank-name").value = "Chase Bank";
   }
 
-  // 6. Build & Submit REST Transaction Score Request
+  // 6. Build & Submit REST Transaction Score Request (Page 1: index.html)
   function buildTransactionPayload() {
     const txType = txTypeSelect.value;
     const transactionDetails = {
@@ -406,7 +431,9 @@
     event.preventDefault();
     const baseUrl = getNormalizedBaseUrl();
     const payload = buildTransactionPayload();
-    restScoreOutput.textContent = "Submitting transaction to API Gateway...";
+    if (restScoreOutput) {
+      restScoreOutput.textContent = "Submitting transaction to API Gateway...";
+    }
 
     try {
       const response = await fetch(`${baseUrl}/api/v1/transactions/score`, {
@@ -415,26 +442,34 @@
         body: JSON.stringify(payload),
       });
       const data = await response.json();
-      restScoreOutput.textContent = JSON.stringify(data, null, 2);
-      if (data && data.transaction_id) {
+      if (restScoreOutput) {
+        restScoreOutput.textContent = JSON.stringify(data, null, 2);
+      }
+      if (data && data.transaction_id && decisionTxIdInput) {
         decisionTxIdInput.value = data.transaction_id;
       }
     } catch (err) {
-      restScoreOutput.textContent = `Request Error: ${err.message}`;
+      if (restScoreOutput) {
+        restScoreOutput.textContent = `Request Error: ${err.message}`;
+      }
     }
   }
 
-  // 7. Submit Accept / Reject Decision (`POST /api/v1/transactions/decision`)
+  // 7. Submit Accept / Reject Decision (`POST /api/v1/transactions/decision`) (Page 2: queue.html)
   async function submitDecision(transactionId, accept, reason) {
     const txId = (transactionId || "").trim();
     const cleanReason = (reason || "").trim();
     if (!txId || !cleanReason) {
-      decisionResponseOutput.textContent = "Please provide both a Transaction ID and a Reason.";
+      if (decisionResponseOutput) {
+        decisionResponseOutput.textContent = "Please provide both a Transaction ID and a Reason.";
+      }
       return;
     }
 
     const baseUrl = getNormalizedBaseUrl();
-    decisionResponseOutput.textContent = "Submitting decision...";
+    if (decisionResponseOutput) {
+      decisionResponseOutput.textContent = "Submitting decision...";
+    }
 
     try {
       const response = await fetch(`${baseUrl}/api/v1/transactions/decision`, {
@@ -447,7 +482,9 @@
         }),
       });
       const data = await response.json();
-      decisionResponseOutput.textContent = JSON.stringify(data, null, 2);
+      if (decisionResponseOutput) {
+        decisionResponseOutput.textContent = JSON.stringify(data, null, 2);
+      }
 
       if (data && data.decision_applied) {
         const badgeEl = document.getElementById(`status-badge-${txId}`);
@@ -457,22 +494,30 @@
         }
       }
     } catch (err) {
-      decisionResponseOutput.textContent = `Decision Request Error: ${err.message}`;
+      if (decisionResponseOutput) {
+        decisionResponseOutput.textContent = `Decision Request Error: ${err.message}`;
+      }
     }
   }
 
   // 8. Check Gateway Health (`GET /health`)
   async function checkGatewayHealth() {
     const baseUrl = getNormalizedBaseUrl();
-    healthStatusText.textContent = "Checking /health...";
+    if (healthStatusText) {
+      healthStatusText.textContent = "Checking /health...";
+    }
     try {
       const response = await fetch(`${baseUrl}/health`);
       const data = await response.json();
-      healthStatusText.textContent = `Health OK (Model: ${data.model || "N/A"}, Ollama: ${
-        data.ollama_connected ? "Online" : "Offline/Mock"
-      })`;
+      if (healthStatusText) {
+        healthStatusText.textContent = `Health OK (Model: ${data.model || "N/A"}, Ollama: ${
+          data.ollama_connected ? "Online" : "Offline/Mock"
+        })`;
+      }
     } catch (err) {
-      healthStatusText.textContent = `Health Check Failed: ${err.message}`;
+      if (healthStatusText) {
+        healthStatusText.textContent = `Health Check Failed: ${err.message}`;
+      }
     }
   }
 
@@ -481,44 +526,87 @@
     UserInvalidFallback.init(document);
 
     const savedUrl = localStorage.getItem(STORAGE_KEY_GATEWAY_URL);
-    if (savedUrl) {
+    if (savedUrl && gatewayUrlInput) {
       gatewayUrlInput.value = savedUrl;
     }
-    document.getElementById("tx-datetime").value = new Date().toISOString();
-    updateDerivedWsDisplay();
+
+    const txDatetimeInput = document.getElementById("tx-datetime");
+    if (txDatetimeInput) {
+      txDatetimeInput.value = new Date().toISOString();
+    }
+
+    updateDerivedEndpointsDisplay();
     syncPaymentRailVisibility();
 
-    gatewayUrlInput.addEventListener("input", updateDerivedWsDisplay);
-    wsUsernameFilterInput.addEventListener("input", updateDerivedWsDisplay);
+    if (gatewayUrlInput) {
+      gatewayUrlInput.addEventListener("input", updateDerivedEndpointsDisplay);
+    }
+    if (wsUsernameFilterInput) {
+      wsUsernameFilterInput.addEventListener("input", updateDerivedEndpointsDisplay);
+    }
+    if (btnCheckHealth) {
+      btnCheckHealth.addEventListener("click", checkGatewayHealth);
+    }
 
-    btnConnectWs.addEventListener("click", connectWebSocket);
-    btnDisconnectWs.addEventListener("click", disconnectWebSocket);
-    btnCheckHealth.addEventListener("click", checkGatewayHealth);
-
-    txTypeSelect.addEventListener("change", syncPaymentRailVisibility);
-    btnPresetCard.addEventListener("click", loadCardPreset);
-    btnPresetAch.addEventListener("click", loadAchPreset);
-    txForm.addEventListener("submit", handleTransactionSubmit);
-
-    btnClearEvents.addEventListener("click", () => {
-      receivedEventsMap.clear();
-      wsEventsTbody.innerHTML = `
-        <tr id="ws-empty-row">
-          <td colspan="6" class="empty-cell">
-            Waiting for WebSocket events... Connect to the Gateway and submit a transaction.
-          </td>
-        </tr>
-      `;
-      wsEventInspector.textContent = "Select or receive a WebSocket event to inspect its full payload.";
+    // Keep Gateway URL synchronized across open browser tabs (Submit tab <-> Queue tab)
+    window.addEventListener("storage", (event) => {
+      if (event.key === STORAGE_KEY_GATEWAY_URL && event.newValue && gatewayUrlInput) {
+        gatewayUrlInput.value = event.newValue;
+        updateDerivedEndpointsDisplay();
+      }
     });
 
-    btnAcceptTx.addEventListener("click", () => {
-      submitDecision(decisionTxIdInput.value, true, decisionReasonInput.value);
-    });
+    // Page 1 (Submit Transaction) bindings
+    if (txTypeSelect) {
+      txTypeSelect.addEventListener("change", syncPaymentRailVisibility);
+    }
+    if (btnPresetCard) {
+      btnPresetCard.addEventListener("click", loadCardPreset);
+    }
+    if (btnPresetAch) {
+      btnPresetAch.addEventListener("click", loadAchPreset);
+    }
+    if (txForm) {
+      txForm.addEventListener("submit", handleTransactionSubmit);
+    }
 
-    btnRejectTx.addEventListener("click", () => {
-      submitDecision(decisionTxIdInput.value, false, decisionReasonInput.value);
-    });
+    // Page 2 (Decision Queue) bindings
+    if (btnConnectWs) {
+      btnConnectWs.addEventListener("click", connectWebSocket);
+    }
+    if (btnDisconnectWs) {
+      btnDisconnectWs.addEventListener("click", disconnectWebSocket);
+    }
+    if (btnClearEvents && wsEventsTbody) {
+      btnClearEvents.addEventListener("click", () => {
+        receivedEventsMap.clear();
+        wsEventsTbody.innerHTML = `
+          <tr id="ws-empty-row">
+            <td colspan="6" class="empty-cell">
+              Waiting for WebSocket events... Connect to the Gateway and submit a transaction from the Submit page.
+            </td>
+          </tr>
+        `;
+        if (wsEventInspector) {
+          wsEventInspector.textContent = "Select or receive a WebSocket event to inspect its full payload.";
+        }
+      });
+    }
+    if (btnAcceptTx) {
+      btnAcceptTx.addEventListener("click", () => {
+        submitDecision(decisionTxIdInput.value, true, decisionReasonInput.value);
+      });
+    }
+    if (btnRejectTx) {
+      btnRejectTx.addEventListener("click", () => {
+        submitDecision(decisionTxIdInput.value, false, decisionReasonInput.value);
+      });
+    }
+
+    // Auto-connect WebSocket when opening the Decision Queue page (queue.html)
+    if (wsEventsTbody) {
+      connectWebSocket();
+    }
   }
 
   if (document.readyState === "loading") {

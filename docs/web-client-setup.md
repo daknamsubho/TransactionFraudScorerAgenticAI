@@ -66,10 +66,25 @@ This guide walks through setting up the Python environment on your local compute
 
 ---
 
-## 3. Step-by-Step: Running the Web Client UI Locally
+## 3. Step-by-Step: Running the Two-Page Web Client UI Locally
 
-1. **Start the Web Client Server** on port `3000`:
-   - Using `uv`:
+The Web Client is split into **two dedicated pages**:
+1. **Page 1 — Submit Transaction (`http://127.0.0.1:3000/index.html`)**: Configure the API Gateway URL and submit `CARD` or `ACH` transactions (`POST /api/v1/transactions/score`).
+2. **Page 2 — Decision Queue (`http://127.0.0.1:3000/queue.html`)**: Live WebSocket stream (`/ws/transactions/events`) displaying incoming scored transactions in a queue where analysts can inspect details and **Accept** or **Reject** transactions (`POST /api/v1/transactions/decision`).
+
+1. **Start / Stop the Web Client Server** on port `3000`:
+   - Using the helper Bash script (`src/web_client/webclient.sh`):
+     ```bash
+     # Start in background
+     ./src/web_client/webclient.sh start --host 127.0.0.1 --port 3000
+
+     # Check status
+     ./src/web_client/webclient.sh status
+
+     # Stop server
+     ./src/web_client/webclient.sh stop
+     ```
+   - Or in the foreground using `uv`:
      ```bash
      uv run fraud-web-client --host 127.0.0.1 --port 3000
      ```
@@ -82,11 +97,9 @@ This guide walks through setting up the Python environment on your local compute
      uv run python -m web_client.server --host 127.0.0.1 --port 3000
      ```
 
-2. **Open the Web UI in your browser**:
-   Navigate to:
-   ```text
-   http://127.0.0.1:3000
-   ```
+2. **Open Both Pages in Your Browser**:
+   - **Submit Page**: [`http://127.0.0.1:3000/index.html`](http://127.0.0.1:3000/index.html)
+   - **Decision Queue Page**: [`http://127.0.0.1:3000/queue.html`](http://127.0.0.1:3000/queue.html) *(or click **"Open Decision Queue in New Tab ↗"** from the Submit page so you can watch the queue update live while submitting transactions!)*
 
 ---
 

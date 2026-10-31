@@ -54,6 +54,15 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+.header-top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
 .header-brand h1 {
   margin: 0;
   font-size: 1.5rem;
@@ -61,9 +70,38 @@ body {
 }
 
 .subtitle {
-  margin: 0.25rem 0 1rem;
+  margin: 0.25rem 0 0;
   color: var(--text-secondary);
   font-size: 0.925rem;
+}
+
+.app-nav {
+  display: flex;
+  gap: 0.5rem;
+  background: #f1f5f9;
+  padding: 0.35rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.nav-link {
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.95rem;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+  background: #e2e8f0;
+}
+
+.nav-link.active {
+  background: var(--accent-primary);
+  color: #ffffff;
 }
 
 .gateway-config-bar {
@@ -118,7 +156,7 @@ body {
   font-weight: 500;
 }
 
-/* Main Grid */
+/* Main Layout Containers */
 .main-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(460px, 1fr));
@@ -126,6 +164,12 @@ body {
   padding: 1.5rem 1.75rem;
   max-width: 1680px;
   margin: 0 auto;
+}
+
+.single-page-container {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 1.5rem 1.75rem;
 }
 
 .panel {

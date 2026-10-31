@@ -63,6 +63,7 @@ dmypy.json
 *~
 .DS_Store
 
-# Logs
+# Logs & PID files
 *.log
+*.pid
 logs/
