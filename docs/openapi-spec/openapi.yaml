@@ -1,0 +1,833 @@
+openapi: 3.1.0
+info:
+  title: Transaction Fraud Scorer Agentic AI API
+  version: 1.0.0
+  description: |
+    OpenAPI v3 specification for the **Transaction Fraud Scorer Agentic AI** gateway.
+    
+    This API enables external web applications and payment gateways to:
+    1. **Ingest Transactions (`POST /api/v1/transactions/score`)**: Submit user information (`username`, `datetime`, `ip`, `location`) and `ACH` or `Card` transaction details for real-time multi-agent fraud evaluation. Returns a normalized `Score`, transaction `Status`, and `TransactionId`.
+    2. **Stream Real-Time Score Events (`GET /ws/transactions/events`)**: Establish a WebSocket connection to push real-time event payloads (`TransactionId`, `Username`, `Amount`, `Details of Score`, `Score`) to the web dashboard.
+    3. **Submit Transaction Decision (`POST /api/v1/transactions/decision`)**: Accept or reject a scored transaction using its `TransactionId`, an `accept` boolean flag, and a `reason` string, returning a `SUCCESS`/`FAILURE` response object.
+  contact:
+    name: Fraud Scorer Engineering
+
+servers:
+  - url: http://localhost:8000
+    description: Local FastAPI Development Server
+  - url: https://{tunnelId}.trycloudflare.com
+    description: Cloudflare Tunnel Gateway (Remote GPU / Colab Host)
+    variables:
+      tunnelId:
+        default: fraud-scorer-gateway
+        description: Assigned Cloudflare tunnel subdomain
+
+tags:
+  - name: Transactions
+    description: Transaction ingestion, fraud scoring, and manual review disposition endpoints.
+  - name: WebSocket
+    description: Real-time WebSocket event stream for web clients and analyst dashboards.
+
+paths:
+  /api/v1/transactions/score:
+    post:
+      tags:
+        - Transactions
+      summary: Ingest user & ACH/Card transaction data for fraud scoring
+      description: |
+        Ingests user context (`username`, `datetime`, `ip`, `location`) alongside either **ACH** or **Card** transaction details.
+        Evaluates the transaction through the LangChain multi-agent fraud scorer and responds with the `TransactionId`, `Score`, and `Status`.
+      operationId: ingestAndScoreTransaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionIngestRequest'
+            examples:
+              cardTransaction:
+                summary: Card Transaction Ingestion
+                value:
+                  username: "jdoe_99"
+                  datetime: "2026-10-31T18:09:11Z"
+                  ip: "198.51.100.42"
+                  device_id: "dev_macbook_pro_91a"
+                  location:
+                    latitude: 37.7749
+                    longitude: -122.4194
+                    city: "San Francisco"
+                    state: "CA"
+                    country: "US"
+                    postal_code: "94103"
+                  transaction_details:
+                    transaction_type: "CARD"
+                    amount: 1450.00
+                    currency: "USD"
+                    merchant:
+                      merchant_id: "merch_88412"
+                      name: "ElectroWorld Online"
+                      mcc: "5732"
+                      country: "US"
+                    card_details:
+                      card_type: "CREDIT"
+                      card_network: "VISA"
+                      card_last_four: "4242"
+                      is_card_present: false
+                      expiration_month: 8
+                      expiration_year: 2028
+                      cvv_verified: true
+                      avs_result: "Y"
+              achTransaction:
+                summary: ACH Bank Transfer Ingestion
+                value:
+                  username: "jdoe_99"
+                  datetime: "2026-10-31T18:15:00Z"
+                  ip: "198.51.100.42"
+                  location:
+                    latitude: 37.7749
+                    longitude: -122.4194
+                    city: "San Francisco"
+                    state: "CA"
+                    country: "US"
+                  transaction_details:
+                    transaction_type: "ACH"
+                    amount: 4800.00
+                    currency: "USD"
+                    merchant:
+                      merchant_id: "merch_payroll_01"
+                      name: "Acme Financial Services"
+                      mcc: "6012"
+                      country: "US"
+                    ach_details:
+                      routing_number: "021000021"
+                      account_last_four: "9876"
+                      account_type: "CHECKING"
+                      sec_code: "WEB"
+                      direction: "DEBIT"
+                      bank_name: "Chase Bank"
+      responses:
+        '200':
+          description: Transaction successfully scored.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionScoreResponse'
+              examples:
+                reviewResponse:
+                  summary: Transaction Flagged for Review
+                  value:
+                    transaction_id: "tx_9a8b7c6d5e4f"
+                    score: 54.5
+                    status: "REVIEW"
+                    evaluated_at: "2026-10-31T18:09:13Z"
+        '400':
+          description: Invalid request payload or malformed parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Validation error on input fields.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal server error during fraud scoring evaluation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /ws/transactions/events:
+    get:
+      tags:
+        - WebSocket
+      summary: WebSocket endpoint to stream real-time transaction score events to Web
+      description: |
+        Upgrades the HTTP connection to a **WebSocket (`ws://` or `wss://`)** channel.
+        Whenever a transaction is scored by the multi-agent system, the server pushes a JSON event payload to connected web clients containing:
+        - `transaction_id` (`TransactionId`)
+        - `username` (`Username`)
+        - `amount` (`Amount`)
+        - `score` (`Score`)
+        - `score_details` (`Details of Score`, including risk factors, reasoning summary, decision, and tools invoked)
+      operationId: streamTransactionScoreEvents
+      parameters:
+        - name: Connection
+          in: header
+          required: false
+          description: Must be `Upgrade` during WebSocket handshake.
+          schema:
+            type: string
+            default: Upgrade
+        - name: Upgrade
+          in: header
+          required: false
+          description: Must be `websocket` during WebSocket handshake.
+          schema:
+            type: string
+            default: websocket
+        - name: username
+          in: query
+          required: false
+          description: Optional filter to subscribe only to events for a specific username.
+          schema:
+            type: string
+      responses:
+        '101':
+          description: Switching Protocols - WebSocket connection established. Server pushes `WebSocketTransactionEvent` JSON frames to the web client.
+          headers:
+            Upgrade:
+              schema:
+                type: string
+                example: websocket
+            Connection:
+              schema:
+                type: string
+                example: Upgrade
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WebSocketTransactionEvent'
+              examples:
+                scoreEvent:
+                  summary: WebSocket Push Event Payload
+                  value:
+                    event_type: "TRANSACTION_SCORED"
+                    transaction_id: "tx_9a8b7c6d5e4f"
+                    username: "jdoe_99"
+                    amount: 1450.00
+                    currency: "USD"
+                    score: 54.5
+                    score_details:
+                      assessment_id: "assess_112233445566"
+                      status: "REVIEW"
+                      reasoning_summary: "Elevated risk due to high-value CNP electronics purchase (MCC 5732) combined with 4 transactions in the last 60 minutes."
+                      tools_invoked:
+                        - "check_velocity"
+                        - "check_geo_anomaly"
+                        - "check_merchant_risk"
+                      risk_factors:
+                        - category: "VELOCITY"
+                          severity: "MEDIUM"
+                          contribution_score: 30.0
+                          description: "4 transactions totaling $2,100.00 within 60 minutes."
+                          details:
+                            count_transactions: 4
+                            sum_amount: 2100.00
+                            window_minutes: 60
+                        - category: "MERCHANT_RISK"
+                          severity: "MEDIUM"
+                          contribution_score: 24.5
+                          description: "High-value Card-Not-Present purchase in electronics category (MCC 5732)."
+                          details:
+                            mcc: "5732"
+                            is_card_present: false
+                      evaluated_at: "2026-10-31T18:09:13Z"
+        '400':
+          description: Bad WebSocket handshake request.
+
+  /api/v1/transactions/decision:
+    post:
+      tags:
+        - Transactions
+      summary: Accept or Reject a transaction with a reason
+      description: |
+        Submits an explicit accept/reject disposition (`accept` boolean) and a `reason` string for a given `transaction_id`.
+        Returns a response object indicating `SUCCESS` or `FAILURE`.
+      operationId: submitTransactionDecision
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionDecisionRequest'
+            examples:
+              acceptTransaction:
+                summary: Accept Transaction
+                value:
+                  transaction_id: "tx_9a8b7c6d5e4f"
+                  accept: true
+                  reason: "Customer verified transaction via step-up 2FA challenge."
+              rejectTransaction:
+                summary: Reject Transaction
+                value:
+                  transaction_id: "tx_9a8b7c6d5e4f"
+                  accept: false
+                  reason: "Confirmed account takeover pattern and unverified IP address."
+      responses:
+        '200':
+          description: Decision processed and recorded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDecisionResponse'
+              examples:
+                successResponse:
+                  summary: Decision Recorded Successfully
+                  value:
+                    status: "SUCCESS"
+                    success: true
+                    transaction_id: "tx_9a8b7c6d5e4f"
+                    decision_applied: "ACCEPTED"
+                    message: "Transaction tx_9a8b7c6d5e4f marked as ACCEPTED."
+                    processed_at: "2026-10-31T18:10:05Z"
+                failureResponse:
+                  summary: Decision Recording Failed
+                  value:
+                    status: "FAILURE"
+                    success: false
+                    transaction_id: "tx_9a8b7c6d5e4f"
+                    decision_applied: null
+                    message: "Transaction already finalized or locked by another analyst."
+                    processed_at: "2026-10-31T18:10:05Z"
+        '404':
+          description: TransactionId not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionDecisionResponse'
+              examples:
+                notFoundFailure:
+                  summary: Transaction Not Found
+                  value:
+                    status: "FAILURE"
+                    success: false
+                    transaction_id: "tx_unknown_000"
+                    decision_applied: null
+                    message: "Transaction ID tx_unknown_000 does not exist."
+                    processed_at: "2026-10-31T18:10:05Z"
+        '400':
+          description: Invalid decision request payload.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    TransactionIngestRequest:
+      type: object
+      required:
+        - username
+        - datetime
+        - ip
+        - location
+        - transaction_details
+      properties:
+        username:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Unique username or customer account identifier.
+          example: "jdoe_99"
+        datetime:
+          type: string
+          format: date-time
+          description: ISO-8601 timestamp when the transaction was initiated.
+          example: "2026-10-31T18:09:11Z"
+        ip:
+          type: string
+          description: IPv4 or IPv6 address of the user originating the transaction.
+          example: "198.51.100.42"
+        device_id:
+          type:
+            - string
+            - "null"
+          description: Optional device fingerprint or session identifier.
+          example: "dev_macbook_pro_91a"
+        location:
+          $ref: '#/components/schemas/GeoLocation'
+        transaction_details:
+          $ref: '#/components/schemas/TransactionDetails'
+
+    GeoLocation:
+      type: object
+      required:
+        - latitude
+        - longitude
+        - country
+      properties:
+        latitude:
+          type: number
+          format: double
+          minimum: -90.0
+          maximum: 90.0
+          description: Latitude in decimal degrees.
+          example: 37.7749
+        longitude:
+          type: number
+          format: double
+          minimum: -180.0
+          maximum: 180.0
+          description: Longitude in decimal degrees.
+          example: -122.4194
+        city:
+          type:
+            - string
+            - "null"
+          description: City name if available.
+          example: "San Francisco"
+        state:
+          type:
+            - string
+            - "null"
+          description: State, province, or region code.
+          example: "CA"
+        country:
+          type: string
+          minLength: 2
+          maxLength: 3
+          default: "US"
+          description: ISO 3166-1 alpha-2 or alpha-3 country code.
+          example: "US"
+        postal_code:
+          type:
+            - string
+            - "null"
+          description: Postal or ZIP code.
+          example: "94103"
+
+    TransactionDetails:
+      type: object
+      required:
+        - transaction_type
+        - amount
+        - currency
+      properties:
+        transaction_id:
+          type: string
+          description: Optional client-supplied transaction ID; generated by server if omitted.
+          example: "tx_9a8b7c6d5e4f"
+        transaction_type:
+          type: string
+          enum:
+            - ACH
+            - CARD
+          description: Payment rail type (`ACH` or `CARD`).
+        amount:
+          type: number
+          format: double
+          exclusiveMinimum: 0.0
+          description: Transaction amount in the specified currency.
+          example: 1450.00
+        currency:
+          type: string
+          minLength: 3
+          maxLength: 3
+          default: "USD"
+          description: Three-letter ISO 4217 currency code.
+          example: "USD"
+        merchant:
+          $ref: '#/components/schemas/MerchantInfo'
+        ach_details:
+          $ref: '#/components/schemas/ACHTransactionDetails'
+        card_details:
+          $ref: '#/components/schemas/CardTransactionDetails'
+      oneOf:
+        - required:
+            - ach_details
+          properties:
+            transaction_type:
+              const: ACH
+        - required:
+            - card_details
+          properties:
+            transaction_type:
+              const: CARD
+
+    MerchantInfo:
+      type: object
+      required:
+        - merchant_id
+        - name
+        - mcc
+      properties:
+        merchant_id:
+          type: string
+          description: Unique merchant identifier.
+          example: "merch_88412"
+        name:
+          type: string
+          description: Merchant commercial name.
+          example: "ElectroWorld Online"
+        mcc:
+          type: string
+          pattern: '^[0-9]{4}$'
+          description: 4-digit Merchant Category Code (MCC).
+          example: "5732"
+        country:
+          type: string
+          default: "US"
+          description: Merchant country code.
+          example: "US"
+
+    ACHTransactionDetails:
+      type: object
+      description: Bank transfer details for ACH transactions.
+      required:
+        - routing_number
+        - account_last_four
+        - account_type
+        - direction
+      properties:
+        routing_number:
+          type: string
+          pattern: '^[0-9]{9}$'
+          description: 9-digit ABA bank routing transit number.
+          example: "021000021"
+        account_last_four:
+          type: string
+          pattern: '^[0-9]{4}$'
+          description: Last 4 digits of the bank account number.
+          example: "9876"
+        account_type:
+          type: string
+          enum:
+            - CHECKING
+            - SAVINGS
+            - BUSINESS
+          description: Type of bank account used for the ACH transfer.
+          example: "CHECKING"
+        sec_code:
+          type: string
+          enum:
+            - WEB
+            - PPD
+            - CCD
+            - TEL
+          default: "WEB"
+          description: NACHA Standard Entry Class (SEC) code.
+          example: "WEB"
+        direction:
+          type: string
+          enum:
+            - DEBIT
+            - CREDIT
+          description: Transfer direction (`DEBIT` pull or `CREDIT` push).
+          example: "DEBIT"
+        bank_name:
+          type:
+            - string
+            - "null"
+          description: Name of the originating or receiving financial institution.
+          example: "Chase Bank"
+
+    CardTransactionDetails:
+      type: object
+      description: Payment card details for credit/debit card transactions.
+      required:
+        - card_type
+        - card_last_four
+        - is_card_present
+      properties:
+        card_type:
+          type: string
+          enum:
+            - CREDIT
+            - DEBIT
+            - PREPAID
+          description: Funding category of the payment card.
+          example: "CREDIT"
+        card_network:
+          type: string
+          enum:
+            - VISA
+            - MASTERCARD
+            - AMEX
+            - DISCOVER
+            - OTHER
+          description: Card brand network.
+          example: "VISA"
+        card_last_four:
+          type: string
+          pattern: '^[0-9]{4}$'
+          description: Last 4 digits of the Primary Account Number (PAN).
+          example: "4242"
+        bin_prefix:
+          type:
+            - string
+            - "null"
+          pattern: '^[0-9]{6,8}$'
+          description: Optional 6-to-8 digit Bank Identification Number (BIN).
+          example: "411111"
+        is_card_present:
+          type: boolean
+          default: false
+          description: Whether the physical card was present at a POS terminal.
+          example: false
+        expiration_month:
+          type:
+            - integer
+            - "null"
+          minimum: 1
+          maximum: 12
+          description: Card expiration month (1-12).
+          example: 8
+        expiration_year:
+          type:
+            - integer
+            - "null"
+          minimum: 2024
+          maximum: 2050
+          description: 4-digit card expiration year.
+          example: 2028
+        cvv_verified:
+          type:
+            - boolean
+            - "null"
+          description: Whether CVV/CVC verification succeeded.
+          example: true
+        avs_result:
+          type:
+            - string
+            - "null"
+          description: Address Verification System (AVS) response code.
+          example: "Y"
+
+    TransactionStatus:
+      type: string
+      enum:
+        - APPROVE
+        - REVIEW
+        - DECLINE
+        - ACCEPTED
+        - REJECTED
+      description: |
+        Current fraud status / disposition of the transaction:
+        - `APPROVE`: Automatically approved (low risk score 0.0 - 29.9)
+        - `REVIEW`: Flagged for manual review or step-up auth (medium risk score 30.0 - 69.9)
+        - `DECLINE`: Automatically blocked (high risk score 70.0 - 100.0)
+        - `ACCEPTED`: Manually accepted via the decision endpoint
+        - `REJECTED`: Manually rejected via the decision endpoint
+
+    TransactionScoreResponse:
+      type: object
+      required:
+        - transaction_id
+        - score
+        - status
+      properties:
+        transaction_id:
+          type: string
+          description: Unique identifier assigned to the evaluated transaction.
+          example: "tx_9a8b7c6d5e4f"
+        score:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 100.0
+          description: Composite fraud risk score normalized between 0.0 (lowest risk) and 100.0 (highest risk).
+          example: 54.5
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        evaluated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the fraud score was generated.
+          example: "2026-10-31T18:09:13Z"
+
+    WebSocketTransactionEvent:
+      type: object
+      description: Real-time event message sent over WebSocket to web clients.
+      required:
+        - transaction_id
+        - username
+        - amount
+        - score
+        - score_details
+      properties:
+        event_type:
+          type: string
+          default: "TRANSACTION_SCORED"
+          description: Event classification type.
+          example: "TRANSACTION_SCORED"
+        transaction_id:
+          type: string
+          description: Unique transaction identifier (`TransactionId`).
+          example: "tx_9a8b7c6d5e4f"
+        username:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: Unique username or customer account identifier associated with the transaction (`Username`).
+          example: "jdoe_99"
+        amount:
+          type: number
+          format: double
+          description: Transaction monetary amount (`Amount`).
+          example: 1450.00
+        currency:
+          type: string
+          default: "USD"
+          description: ISO currency code for the transaction amount.
+          example: "USD"
+        score:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 100.0
+          description: Composite fraud risk score (`Score`).
+          example: 54.5
+        score_details:
+          $ref: '#/components/schemas/ScoreDetails'
+
+    ScoreDetails:
+      type: object
+      description: Detailed breakdown of the fraud score (`Details of Score`).
+      required:
+        - status
+        - reasoning_summary
+        - risk_factors
+      properties:
+        assessment_id:
+          type: string
+          description: Unique assessment identifier generated by the orchestrator.
+          example: "assess_112233445566"
+        status:
+          $ref: '#/components/schemas/TransactionStatus'
+        reasoning_summary:
+          type: string
+          description: Explainable AI rationale summarizing why the score and disposition were assigned.
+          example: "Elevated risk due to high-value CNP electronics purchase (MCC 5732) combined with 4 transactions in the last 60 minutes."
+        risk_factors:
+          type: array
+          description: Individual risk signals contributing to the composite score.
+          items:
+            $ref: '#/components/schemas/RiskFactor'
+        tools_invoked:
+          type: array
+          description: MCP risk tools invoked by the agent during evaluation.
+          items:
+            type: string
+          example:
+            - "check_velocity"
+            - "check_geo_anomaly"
+            - "check_merchant_risk"
+        evaluated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the assessment completed.
+          example: "2026-10-31T18:09:13Z"
+
+    RiskFactor:
+      type: object
+      required:
+        - category
+        - severity
+        - contribution_score
+        - description
+      properties:
+        category:
+          type: string
+          description: Risk signal category (e.g., `VELOCITY`, `GEO_ANOMALY`, `MERCHANT_RISK`, `ACCOUNT_HISTORY`).
+          example: "VELOCITY"
+        severity:
+          type: string
+          enum:
+            - LOW
+            - MEDIUM
+            - HIGH
+            - CRITICAL
+          description: Severity level of the detected risk factor.
+          example: "MEDIUM"
+        contribution_score:
+          type: number
+          format: double
+          minimum: 0.0
+          maximum: 100.0
+          description: Individual risk score contribution (0.0 to 100.0).
+          example: 30.0
+        description:
+          type: string
+          description: Human-readable explanation of the risk factor.
+          example: "4 transactions totaling $2,100.00 within 60 minutes."
+        details:
+          type: object
+          additionalProperties: true
+          description: Supporting quantitative metrics from MCP tools.
+
+    TransactionDecisionRequest:
+      type: object
+      required:
+        - transaction_id
+        - accept
+        - reason
+      properties:
+        transaction_id:
+          type: string
+          description: Target `TransactionId` to accept or reject.
+          example: "tx_9a8b7c6d5e4f"
+        accept:
+          type: boolean
+          description: Boolean flag indicating whether to accept (`true`) or reject (`false`) the transaction.
+          example: true
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Explanation or audit reason for accepting or rejecting the transaction.
+          example: "Customer verified transaction via step-up 2FA challenge."
+
+    TransactionDecisionResponse:
+      type: object
+      required:
+        - status
+        - success
+        - transaction_id
+      properties:
+        status:
+          type: string
+          enum:
+            - SUCCESS
+            - FAILURE
+          description: Outcome status of the decision operation (`SUCCESS` or `FAILURE`).
+          example: "SUCCESS"
+        success:
+          type: boolean
+          description: Boolean indicator matching `status` (`true` for `SUCCESS`, `false` for `FAILURE`).
+          example: true
+        transaction_id:
+          type: string
+          description: The `TransactionId` that was acted upon.
+          example: "tx_9a8b7c6d5e4f"
+        decision_applied:
+          type:
+            - string
+            - "null"
+          enum:
+            - ACCEPTED
+            - REJECTED
+            - null
+          description: Final disposition applied to the transaction if successful.
+          example: "ACCEPTED"
+        message:
+          type: string
+          description: Human-readable status or error message.
+          example: "Transaction tx_9a8b7c6d5e4f marked as ACCEPTED."
+        processed_at:
+          type: string
+          format: date-time
+          description: Timestamp when the decision was recorded.
+          example: "2026-10-31T18:10:05Z"
+
+    ErrorResponse:
+      type: object
+      required:
+        - status
+        - message
+      properties:
+        status:
+          type: string
+          enum:
+            - FAILURE
+            - ERROR
+          default: "FAILURE"
+        message:
+          type: string
+          description: Error description.
+        details:
+          type: object
+          additionalProperties: true
+          description: Optional validation or diagnostic details.
