@@ -507,3 +507,50 @@ LEFT JOIN transaction_scores s
     ON t.transaction_id = s.transaction_id
 WHERE t.username = :username;
 """
+
+SELECT_USER_VELOCITY_WINDOW_SQL = """
+SELECT
+    COUNT(transaction_id) AS count_transactions,
+    COALESCE(SUM(amount), 0.0) AS sum_amount
+FROM transactions
+WHERE username = :username
+  AND timestamp >= :window_start_iso
+  AND timestamp <= :window_end_iso;
+"""
+
+SELECT_LAST_TRANSACTION_BY_USERNAME_SQL = """
+SELECT
+    transaction_id,
+    username,
+    amount,
+    currency,
+    timestamp,
+    latitude,
+    longitude,
+    city,
+    state,
+    country
+FROM transactions
+WHERE username = :username
+ORDER BY timestamp DESC, transaction_id DESC
+LIMIT 1;
+"""
+
+SELECT_MERCHANT_HISTORICAL_STATS_SQL = """
+SELECT
+    COUNT(t.transaction_id) AS total_transactions,
+    COALESCE(AVG(t.amount), 0.0) AS avg_amount,
+    SUM(
+        CASE
+            WHEN t.status IN ('DECLINE', 'REJECTED')
+              OR s.approval_status IN ('DECLINE', 'REJECTED')
+              OR s.decision_accepted = 0
+            THEN 1
+            ELSE 0
+        END
+    ) AS disputed_transactions
+FROM transactions t
+LEFT JOIN transaction_scores s
+    ON t.transaction_id = s.transaction_id
+WHERE t.merchant_id = :merchant_id;
+"""

@@ -1,5 +1,7 @@
 """Unit tests for modular FastMCP risk tools, server registration, and LangChain binding."""
 
+from pathlib import Path
+
 import pytest
 from langchain_ollama import ChatOllama
 
@@ -10,6 +12,7 @@ from fraud_scorer.mcp.tools.check_merchant_risk import check_merchant_risk
 from fraud_scorer.mcp.tools.check_velocity import check_velocity
 from fraud_scorer.mcp.tools.lookup_account_history import lookup_account_history
 from fraud_scorer.mcp.tools.mock_db import get_account_profile
+from sqllite import init_db, insert_transaction, insert_transaction_score, insert_user_profile
 
 
 def test_modular_tool_files_and_mock_db() -> None:
@@ -135,3 +138,84 @@ def test_configure_langchain_with_mcp_tools() -> None:
     bound_llm = configure_langchain_with_mcp_tools(llm)
     assert bound_llm is not None
     assert len(get_langchain_fraud_tools()) == 4
+
+
+def test_all_mcp_tools_query_sqlite_database(tmp_path: Path) -> None:
+    """Verify check_velocity, check_geo_anomaly, check_merchant_risk, and lookup_account_history query SQLite."""
+    db_file = init_db(tmp_path / "tools_db.db")
+
+    insert_user_profile(
+        username="db_user_01",
+        created_date="2025-01-01T00:00:00+00:00",
+        address="100 Main St",
+        city="San Francisco",
+        state="CA",
+        country="US",
+        db_path=db_file,
+    )
+
+    # Insert 6 transactions within 60 minutes in San Francisco at merch_disputed_99
+    for idx in range(1, 7):
+        tx_id = f"tx_db_{idx}"
+        status = "REJECTED" if idx <= 2 else "APPROVE"
+        insert_transaction(
+            transaction_id=tx_id,
+            username="db_user_01",
+            transaction_type="CARD",
+            amount=300.0,
+            timestamp=f"2026-10-31T12:{idx * 5:02d}:00+00:00",
+            latitude=37.7749,
+            longitude=-122.4194,
+            city="San Francisco",
+            state="CA",
+            country="US",
+            merchant_id="merch_disputed_99",
+            merchant_name="Disputed Merchant",
+            mcc="5411",
+            status=status,
+            db_path=db_file,
+        )
+        insert_transaction_score(
+            transaction_id=tx_id,
+            score=80.0 if status == "REJECTED" else 10.0,
+            approval_status=status,
+            decision_accepted=status != "REJECTED",
+            reasoning_summary="Seeded test score",
+            db_path=db_file,
+        )
+
+    # 1. check_velocity against SQLite
+    vel = check_velocity("db_user_01", window_minutes=60, db_path=db_file)
+    assert vel["data_source"] == "sqlite"
+    assert vel["count_transactions"] == 6
+    assert vel["sum_amount"] == 1800.0
+    assert vel["is_burst"] is True
+    assert vel["velocity_score"] >= 65.0
+
+    # 2. check_geo_anomaly against SQLite (Tokyo 15 minutes after San Francisco)
+    geo = check_geo_anomaly(
+        account_id="db_user_01",
+        current_lat=35.6762,
+        current_lon=139.6503,
+        timestamp="2026-10-31T12:45:00+00:00",
+        db_path=db_file,
+    )
+    assert geo["data_source"] == "sqlite"
+    assert geo["impossible_travel"] is True
+    assert geo["geo_risk_score"] >= 90.0
+
+    # 3. check_merchant_risk against SQLite (2/6 = 33.3% disputed even on standard MCC 5411)
+    merch = check_merchant_risk("merch_disputed_99", "5411", db_path=db_file)
+    assert merch["data_source"] == "sqlite"
+    assert merch["historical_transactions"] == 6
+    assert merch["historical_disputes"] == 2
+    assert merch["risk_tier"] == "HIGH"
+    assert merch["merchant_risk_score"] >= 70.0
+
+    # 4. lookup_account_history against SQLite
+    hist = lookup_account_history("db_user_01", db_path=db_file)
+    assert hist["data_source"] == "sqlite"
+    assert hist["total_transactions"] == 6
+    assert hist["prior_disputes"] == 2
+    assert hist["avg_transaction_amount"] == 300.0
+    assert hist["trust_tier"] == "untrusted"

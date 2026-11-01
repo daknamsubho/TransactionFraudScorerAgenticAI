@@ -1,10 +1,13 @@
-"""MCP Tool: check_geo_anomaly — Detect impossible travel and geographic anomalies."""
+"""MCP Tool: check_geo_anomaly — Detect impossible travel and geographic anomalies from SQLite RDBMS."""
 
 import math
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from fraud_scorer.mcp.tools.mock_db import get_account_profile
+from sqllite.crud import get_last_transaction_location
+from sqllite.database import DEFAULT_DB_PATH
 
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -25,39 +28,56 @@ def check_geo_anomaly(
     current_lon: float,
     current_timestamp_iso: str | None = None,
     timestamp: str | None = None,
+    db_path: str | Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any]:
     """Check for impossible travel speed and distant consecutive transactions.
 
+    Queries the SQLite `transactions` table for the customer's most recent historical
+    transaction location and timestamp when available, falling back to `mock_db` otherwise.
+
     Args:
-        account_id: Customer account identifier.
+        account_id: Customer account identifier / username.
         current_lat: Current transaction latitude (-90.0 to 90.0).
         current_lon: Current transaction longitude (-180.0 to 180.0).
         current_timestamp_iso: Current transaction timestamp in ISO-8601 format.
         timestamp: Optional alias for current_timestamp_iso per architecture contract.
+        db_path: Optional path to the SQLite database file.
 
     Returns:
         Dictionary with distance_km, elapsed_hours, speed_kmh, impossible_travel, and geo_risk_score.
     """
-    account_info = get_account_profile(account_id)
-    last_loc = account_info.get(
-        "last_location",
-        {"latitude": current_lat, "longitude": current_lon, "city": "Unknown"},
-    )
-    last_lat = float(last_loc["latitude"])
-    last_lon = float(last_loc["longitude"])
+    last_db_tx = get_last_transaction_location(account_id, db_path=db_path)
+    if last_db_tx is not None:
+        last_lat = float(last_db_tx["latitude"])
+        last_lon = float(last_db_tx["longitude"])
+        last_time_str = str(last_db_tx["timestamp"])
+        data_source = "sqlite"
+    else:
+        account_info = get_account_profile(account_id)
+        last_loc = account_info.get(
+            "last_location",
+            {"latitude": current_lat, "longitude": current_lon, "city": "Unknown"},
+        )
+        last_lat = float(last_loc["latitude"])
+        last_lon = float(last_loc["longitude"])
+        last_time_str = str(account_info.get("last_timestamp", "2026-10-12T11:00:00Z"))
+        data_source = "mock_db"
 
     dist_km = haversine_distance(last_lat, last_lon, current_lat, current_lon)
 
     effective_ts = current_timestamp_iso or timestamp
-    last_time_str = str(account_info.get("last_timestamp", "2026-10-12T11:00:00Z"))
     try:
         t_last = datetime.fromisoformat(last_time_str.replace("Z", "+00:00"))
+        if t_last.tzinfo is None:
+            t_last = t_last.replace(tzinfo=UTC)
         t_curr = (
             datetime.fromisoformat(effective_ts.replace("Z", "+00:00"))
             if effective_ts
             else datetime.now(UTC)
         )
-        elapsed_hours = max((t_curr - t_last).total_seconds() / 3600.0, 0.05)
+        if t_curr.tzinfo is None:
+            t_curr = t_curr.replace(tzinfo=UTC)
+        elapsed_hours = max(abs((t_curr - t_last).total_seconds()) / 3600.0, 0.05)
     except Exception:
         elapsed_hours = 1.0
 
@@ -79,6 +99,7 @@ def check_geo_anomaly(
 
     return {
         "account_id": account_id,
+        "data_source": data_source,
         "distance_km": dist_km,
         "elapsed_hours": round(elapsed_hours, 2),
         "speed_kmh": speed_kmh,

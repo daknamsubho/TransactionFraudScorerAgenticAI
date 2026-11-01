@@ -30,12 +30,16 @@ def lookup_account_history(
         chargebacks = int(db_metrics["prior_disputes"])
         avg_spend = float(db_metrics["avg_transaction_amount"])
         trust_tier = str(db_metrics["trust_tier"])
+        total_tx = int(db_metrics["total_transactions"])
+        data_source = "sqlite"
     else:
         account_info = get_account_profile(account_id)
         age_days = int(account_info.get("account_age_days", 180))
         chargebacks = int(account_info.get("chargeback_count", 0))
         avg_spend = float(account_info.get("avg_spend", 100.0))
         trust_tier = str(account_info.get("trust_tier", "standard"))
+        total_tx = int(account_info.get("recent_tx_count_1h", 1))
+        data_source = "mock_db"
 
     if chargebacks >= 2 or (age_days < 7 and trust_tier == "untrusted"):
         score = 85.0
@@ -49,6 +53,8 @@ def lookup_account_history(
 
     return {
         "account_id": account_id,
+        "data_source": data_source,
+        "total_transactions": total_tx,
         # Architecture contract fields
         "account_age_days": age_days,
         "prior_disputes": chargebacks,

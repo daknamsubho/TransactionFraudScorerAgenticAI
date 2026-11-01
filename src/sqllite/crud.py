@@ -2,7 +2,7 @@
 
 import json
 import math
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -18,6 +18,8 @@ from sqllite.queries import (
     INSERT_TRANSACTION_SCORE_SQL,
     INSERT_TRANSACTION_SQL,
     SELECT_ALL_USER_PROFILES_SQL,
+    SELECT_LAST_TRANSACTION_BY_USERNAME_SQL,
+    SELECT_MERCHANT_HISTORICAL_STATS_SQL,
     SELECT_TRANSACTION_BY_ID_SQL,
     SELECT_TRANSACTION_SCORE_BY_TX_ID_SQL,
     SELECT_TRANSACTION_SCORES_PAGINATED_SQL,
@@ -28,6 +30,7 @@ from sqllite.queries import (
     SELECT_USER_PROFILE_BY_USERNAME_SQL,
     SELECT_USER_PROFILES_PAGINATED_SQL,
     SELECT_USER_TRANSACTION_STATS_SQL,
+    SELECT_USER_VELOCITY_WINDOW_SQL,
     UPDATE_TRANSACTION_DECISION_SQL,
     UPDATE_TRANSACTION_RECORD_SQL,
     UPDATE_TRANSACTION_SCORE_SQL,
@@ -649,4 +652,90 @@ def calculate_user_profile_metrics(
         "trust_tier": trust_tier,
         "address": profile.get("address"),
         "created_date": created_str,
+    }
+
+
+def get_last_transaction_location(
+    username: str,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Fetch the most recent historical transaction location and timestamp for a username."""
+    init_db(db_path)
+    with get_connection(db_path) as conn:
+        row = conn.execute(SELECT_LAST_TRANSACTION_BY_USERNAME_SQL, {"username": username}).fetchone()
+        return dict(row) if row is not None else None
+
+
+def calculate_velocity_metrics(
+    username: str,
+    window_minutes: int = 60,
+    reference_timestamp: str | None = None,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Calculate historical transaction count and cumulative amount within a time window from SQLite.
+
+    Returns None if the user does not exist in user_profiles and has no transactions in SQLite.
+    """
+    profile = select_user_profile(username, db_path=db_path)
+    last_tx = get_last_transaction_location(username, db_path=db_path)
+    if profile is None and last_tx is None:
+        return None
+
+    effective_end_str = reference_timestamp or (str(last_tx["timestamp"]) if last_tx else _now_iso())
+    try:
+        end_dt = datetime.fromisoformat(effective_end_str.replace("Z", "+00:00"))
+        if end_dt.tzinfo is None:
+            end_dt = end_dt.replace(tzinfo=UTC)
+    except ValueError:
+        end_dt = datetime.now(UTC)
+
+    start_dt = end_dt - timedelta(minutes=max(1, window_minutes))
+    window_start_iso = start_dt.isoformat()
+    window_end_iso = end_dt.isoformat()
+
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            SELECT_USER_VELOCITY_WINDOW_SQL,
+            {
+                "username": username,
+                "window_start_iso": window_start_iso,
+                "window_end_iso": window_end_iso,
+            },
+        ).fetchone()
+
+    tx_count = int(row["count_transactions"] or 0) if row else 0
+    tx_sum = float(row["sum_amount"] or 0.0) if row else 0.0
+    return {
+        "username": username,
+        "window_minutes": window_minutes,
+        "count_transactions": tx_count,
+        "sum_amount": round(tx_sum, 2),
+        "window_start": window_start_iso,
+        "window_end": window_end_iso,
+    }
+
+
+def calculate_merchant_risk_metrics(
+    merchant_id: str,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Calculate historical transaction volume and dispute rate for a merchant_id from SQLite."""
+    init_db(db_path)
+    with get_connection(db_path) as conn:
+        row = conn.execute(
+            SELECT_MERCHANT_HISTORICAL_STATS_SQL,
+            {"merchant_id": merchant_id},
+        ).fetchone()
+
+    total_tx = int(row["total_transactions"] or 0) if row else 0
+    avg_amount = float(row["avg_amount"] or 0.0) if row else 0.0
+    disputed_tx = int(row["disputed_transactions"] or 0) if row else 0
+    dispute_rate = round(disputed_tx / total_tx, 4) if total_tx > 0 else 0.0
+
+    return {
+        "merchant_id": merchant_id,
+        "total_transactions": total_tx,
+        "disputed_transactions": disputed_tx,
+        "dispute_rate": dispute_rate,
+        "avg_amount": round(avg_amount, 2),
     }
