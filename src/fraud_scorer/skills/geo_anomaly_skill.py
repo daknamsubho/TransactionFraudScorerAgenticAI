@@ -1,5 +1,6 @@
 """Geographic Anomaly Detection Skill (`src/fraud_scorer/skills/geo_anomaly_skill.py`)."""
 
+from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import BaseTool
@@ -27,20 +28,23 @@ class GeoAnomalySkill:
         current_lat: float,
         current_lon: float,
         current_timestamp_iso: str,
+        db_path: str | Path | None = None,
     ) -> tuple[dict[str, Any], list[RiskFactor], str]:
         """Invoke check_geo_anomaly_tool and evaluate geographic risk factors.
 
         Returns:
             Tuple of (geo_dict, geo_risk_factors, tool_name_invoked).
         """
-        geo_res: dict[str, Any] = await check_geo_anomaly_tool.ainvoke(
-            {
-                "account_id": account_id,
-                "current_lat": current_lat,
-                "current_lon": current_lon,
-                "current_timestamp_iso": current_timestamp_iso,
-            }
-        )
+        payload: dict[str, Any] = {
+            "account_id": account_id,
+            "current_lat": current_lat,
+            "current_lon": current_lon,
+            "current_timestamp_iso": current_timestamp_iso,
+        }
+        if db_path is not None:
+            payload["db_path"] = str(db_path)
+
+        geo_res: dict[str, Any] = await check_geo_anomaly_tool.ainvoke(payload)
         risk_factors: list[RiskFactor] = []
 
         is_impossible = bool(

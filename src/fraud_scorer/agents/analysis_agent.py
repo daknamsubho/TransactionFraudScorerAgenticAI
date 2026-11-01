@@ -1,5 +1,6 @@
 """Analysis Agent (`src/fraud_scorer/agents/analysis_agent.py`)."""
 
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -44,6 +45,7 @@ class AnalysisAgent:
         geo_skill: GeoAnomalySkill | None = None,
         merchant_skill: MerchantRiskSkill | None = None,
         amount_skill: AmountAnomalySkill | None = None,
+        db_path: str | Path | None = None,
     ) -> None:
         self.ollama_base_url = ollama_base_url or settings.ollama_base_url
         self.model_name = model_name or settings.ollama_model
@@ -51,6 +53,7 @@ class AnalysisAgent:
         self.geo_skill = geo_skill or GeoAnomalySkill()
         self.merchant_skill = merchant_skill or MerchantRiskSkill()
         self.amount_skill = amount_skill or AmountAnomalySkill()
+        self.db_path = db_path
 
     def _build_llm_with_skills(self) -> Any:
         """Bind analytical skill tools to ChatOllama."""
@@ -72,10 +75,12 @@ class AnalysisAgent:
         transaction: Transaction,
         account_history: dict[str, Any] | None = None,
         use_llm: bool = False,
+        db_path: str | Path | None = None,
     ) -> AnalysisResult:
         """Execute velocity, geographic, merchant, and amount skills to synthesize RiskFactors."""
         llm_notes: str | None = None
         tools_invoked: list[str] = []
+        effective_db_path = db_path or self.db_path
 
         if use_llm:
             try:
@@ -105,6 +110,7 @@ class AnalysisAgent:
         v_data, v_factors, v_tool = await self.velocity_skill.execute(
             account_id=transaction.account_id,
             window_minutes=60,
+            db_path=effective_db_path,
         )
         # 2. Geo Anomaly Skill
         geo_data, geo_factors, geo_tool = await self.geo_skill.execute(
@@ -112,11 +118,13 @@ class AnalysisAgent:
             current_lat=transaction.location.latitude,
             current_lon=transaction.location.longitude,
             current_timestamp_iso=transaction.timestamp.isoformat(),
+            db_path=effective_db_path,
         )
         # 3. Merchant Risk Skill
         merch_data, merch_factors, merch_tool = await self.merchant_skill.execute(
             merchant_id=transaction.merchant.merchant_id,
             mcc=transaction.merchant.mcc,
+            db_path=effective_db_path,
         )
         # 4. Amount Anomaly Skill
         amount_factors = self.amount_skill.execute(

@@ -86,10 +86,10 @@ def create_app(
         allow_headers=["*"],
     )
 
-    fraud_orchestrator = orchestrator or FraudScorerOrchestrator()
+    resolved_db_path = init_db(db_path)
+    fraud_orchestrator = orchestrator or FraudScorerOrchestrator(db_path=resolved_db_path)
     tx_store = store or TransactionStore()
     connection_manager = ws_manager or ConnectionManager()
-    resolved_db_path = init_db(db_path)
 
     # Attach state for programmatic access and testing
     application.state.orchestrator = fraud_orchestrator
@@ -120,7 +120,10 @@ def create_app(
     ) -> TransactionScoreResponse:
         """Ingest transaction details, coordinate evaluation via Orchestrator -> Decision Agent, and push WS event."""
         domain_tx = to_domain_transaction(payload)
-        assessment: FraudAssessment = await fraud_orchestrator.evaluate_transaction(domain_tx)
+        assessment: FraudAssessment = await fraud_orchestrator.evaluate_transaction(
+            domain_tx,
+            db_path=resolved_db_path,
+        )
         evaluated_at = assessment.evaluated_at
 
         tx_store.save(domain_tx, assessment)
@@ -191,8 +194,12 @@ def create_app(
 
         return TransactionScoreResponse(
             transaction_id=assessment.transaction_id,
+            assessment_id=assessment.assessment_id,
             score=assessment.overall_risk_score,
             status=assessment.decision,
+            reasoning_summary=assessment.reasoning_summary,
+            risk_factors=assessment.risk_factors,
+            tools_invoked=assessment.tools_invoked,
             evaluated_at=assessment.evaluated_at,
         )
 

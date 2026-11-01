@@ -1,5 +1,6 @@
 """Account History Retrieval Skill (`src/fraud_scorer/skills/account_history_skill.py`)."""
 
+from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import BaseTool
@@ -21,15 +22,21 @@ class AccountHistorySkill:
         """Return the underlying LangChain BaseTool for LLM tool binding."""
         return lookup_account_history_tool
 
-    async def execute(self, account_id: str) -> tuple[dict[str, Any], list[RiskFactor], str]:
+    async def execute(
+        self,
+        account_id: str,
+        db_path: str | Path | None = None,
+    ) -> tuple[dict[str, Any], list[RiskFactor], str]:
         """Invoke lookup_account_history_tool and evaluate account history risk factors.
 
         Returns:
             Tuple of (account_history_dict, account_risk_factors, tool_name_invoked).
         """
-        hist_res: dict[str, Any] = await lookup_account_history_tool.ainvoke(
-            {"account_id": account_id}
-        )
+        payload: dict[str, Any] = {"account_id": account_id}
+        if db_path is not None:
+            payload["db_path"] = str(db_path)
+
+        hist_res: dict[str, Any] = await lookup_account_history_tool.ainvoke(payload)
         risk_factors: list[RiskFactor] = []
 
         trust_tier = str(hist_res.get("trust_tier", "new"))

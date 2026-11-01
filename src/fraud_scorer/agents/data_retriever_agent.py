@@ -1,5 +1,6 @@
 """Data Retriever Agent (`src/fraud_scorer/agents/data_retriever_agent.py`)."""
 
+from pathlib import Path
 from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -34,10 +35,12 @@ class DataRetrieverAgent:
         ollama_base_url: str | None = None,
         model_name: str | None = None,
         account_history_skill: AccountHistorySkill | None = None,
+        db_path: str | Path | None = None,
     ) -> None:
         self.ollama_base_url = ollama_base_url or settings.ollama_base_url
         self.model_name = model_name or settings.ollama_model
         self.skill = account_history_skill or AccountHistorySkill()
+        self.db_path = db_path
 
     def _build_llm_with_skill(self) -> Any:
         """Bind the AccountHistorySkill LangChain tool to ChatOllama."""
@@ -52,10 +55,12 @@ class DataRetrieverAgent:
         self,
         transaction: Transaction,
         use_llm: bool = False,
+        db_path: str | Path | None = None,
     ) -> DataRetrievalResult:
         """Retrieve customer profile & historical metrics for a transaction."""
         llm_notes: str | None = None
         tools_invoked: list[str] = []
+        effective_db_path = db_path or self.db_path
 
         if use_llm:
             try:
@@ -78,7 +83,10 @@ class DataRetrieverAgent:
             except Exception:
                 llm_notes = None
 
-        account_history, risk_factors, tool_name = await self.skill.execute(transaction.account_id)
+        account_history, risk_factors, tool_name = await self.skill.execute(
+            account_id=transaction.account_id,
+            db_path=effective_db_path,
+        )
         if tool_name not in tools_invoked:
             tools_invoked.append(tool_name)
 

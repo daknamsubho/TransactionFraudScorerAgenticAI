@@ -322,3 +322,80 @@ def test_rdbms_crud_and_paginated_endpoints(tmp_path: Path) -> None:
     del_user = client.delete("/api/v1/db/user-profiles/user_01")
     assert del_user.status_code == 200
     assert del_user.json()["deleted"] is True
+
+
+def test_end_to_end_gateway_fraud_scorer_db_and_feedback(tmp_path: Path) -> None:
+    """Verify API Gateway -> OrchestratorAgent -> SQLite DB -> WebClient Feedback loop (PRD-010)."""
+    db_file = tmp_path / "e2e_fraud_scorer.db"
+    client = TestClient(create_app(db_path=db_file))
+
+    # 1. Create a user profile in SQLite
+    client.post(
+        "/api/v1/db/user-profiles",
+        json={
+            "username": "live_user_01",
+            "created_date": "2025-01-01T00:00:00Z",
+            "address": "100 Main St",
+            "city": "San Francisco",
+            "state": "CA",
+            "country": "US",
+            "postal_code": "94105",
+        },
+    )
+
+    # 2. First normal transaction in San Francisco ($45.00 grocery) -> APPROVE
+    tx1_payload = _sample_card_payload(username="live_user_01", amount=45.0)
+    tx1_payload["datetime"] = "2026-10-31T18:00:00Z"
+    resp1 = client.post("/api/v1/transactions/score", json=tx1_payload)
+    assert resp1.status_code == 200
+    data1 = resp1.json()
+    assert data1["status"] == "APPROVE"
+    assert data1["score"] == 0.0
+    assert data1["assessment_id"].startswith("assess_")
+    assert isinstance(data1["reasoning_summary"], str)
+    assert len(data1["tools_invoked"]) >= 4
+
+    # 3. Second transaction 15 minutes later in Tokyo ($3,200.00 casino MCC 7995) -> DECLINE
+    tx2_payload = _sample_card_payload(username="live_user_01", amount=3200.0)
+    tx2_payload["datetime"] = "2026-10-31T18:15:00Z"
+    tx2_payload["location"] = {
+        "latitude": 35.6762,
+        "longitude": 139.6503,
+        "city": "Tokyo",
+        "country": "JP",
+    }
+    tx2_payload["transaction_details"]["merchant"] = {
+        "merchant_id": "merch_tokyo_casino",
+        "name": "Tokyo High Roller Casino",
+        "mcc": "7995",
+        "country": "JP",
+    }
+    tx2_payload["transaction_details"]["card_details"]["is_card_present"] = False
+
+    resp2 = client.post("/api/v1/transactions/score", json=tx2_payload)
+    assert resp2.status_code == 200
+    data2 = resp2.json()
+    assert data2["status"] == "DECLINE"
+    assert data2["score"] >= 70.0
+    categories = [rf["category"] for rf in data2["risk_factors"]]
+    assert "GEO_ANOMALY" in categories
+    assert "MERCHANT_RISK" in categories
+    assert "AMOUNT_ANOMALY" in categories
+
+    # 4. Submit WebClient Analyst Feedback (Reject with reason)
+    feedback_resp = client.post(
+        "/api/v1/transactions/decision",
+        json={
+            "transaction_id": data2["transaction_id"],
+            "accept": False,
+            "reason": "Confirmed impossible travel and high-risk MCC via WebClient.",
+        },
+    )
+    assert feedback_resp.status_code == 200
+    assert feedback_resp.json()["decision_applied"] == "REJECTED"
+
+    # 5. Verify SQLite transaction_scores record has the feedback persisted
+    score_record = client.get(f"/api/v1/db/transaction-scores/{data2['transaction_id']}").json()
+    assert score_record["approval_status"] == "REJECTED"
+    assert score_record["decision_accepted"] is False
+    assert score_record["decision_reason"] == "Confirmed impossible travel and high-risk MCC via WebClient."

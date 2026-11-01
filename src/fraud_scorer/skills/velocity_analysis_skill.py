@@ -1,5 +1,6 @@
 """Transaction Velocity Analysis Skill (`src/fraud_scorer/skills/velocity_analysis_skill.py`)."""
 
+from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import BaseTool
@@ -25,15 +26,21 @@ class VelocityAnalysisSkill:
         self,
         account_id: str,
         window_minutes: int = 60,
+        db_path: str | Path | None = None,
     ) -> tuple[dict[str, Any], list[RiskFactor], str]:
         """Invoke check_velocity_tool and evaluate velocity risk factors.
 
         Returns:
             Tuple of (velocity_dict, velocity_risk_factors, tool_name_invoked).
         """
-        v_res: dict[str, Any] = await check_velocity_tool.ainvoke(
-            {"account_id": account_id, "window_minutes": window_minutes}
-        )
+        payload: dict[str, Any] = {
+            "account_id": account_id,
+            "window_minutes": window_minutes,
+        }
+        if db_path is not None:
+            payload["db_path"] = str(db_path)
+
+        v_res: dict[str, Any] = await check_velocity_tool.ainvoke(payload)
         risk_factors: list[RiskFactor] = []
 
         is_burst = bool(v_res.get("is_burst", False))

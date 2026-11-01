@@ -1,5 +1,6 @@
 """Merchant Risk Analysis Skill (`src/fraud_scorer/skills/merchant_risk_skill.py`)."""
 
+from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import BaseTool
@@ -25,15 +26,18 @@ class MerchantRiskSkill:
         self,
         merchant_id: str,
         mcc: str,
+        db_path: str | Path | None = None,
     ) -> tuple[dict[str, Any], list[RiskFactor], str]:
         """Invoke check_merchant_risk_tool and evaluate merchant risk factors.
 
         Returns:
             Tuple of (merchant_dict, merchant_risk_factors, tool_name_invoked).
         """
-        merch_res: dict[str, Any] = await check_merchant_risk_tool.ainvoke(
-            {"merchant_id": merchant_id, "mcc": mcc}
-        )
+        payload: dict[str, Any] = {"merchant_id": merchant_id, "mcc": mcc}
+        if db_path is not None:
+            payload["db_path"] = str(db_path)
+
+        merch_res: dict[str, Any] = await check_merchant_risk_tool.ainvoke(payload)
         risk_factors: list[RiskFactor] = []
 
         is_high_risk_mcc = bool(merch_res.get("is_high_risk_mcc", False))

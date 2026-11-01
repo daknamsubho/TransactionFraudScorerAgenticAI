@@ -31,6 +31,7 @@ def test_submit_page_and_queue_page_structure() -> None:
     assert 'id="gateway-url"' in index_html
     assert 'id="transaction-form"' in index_html
     assert 'id="ws-events-table"' not in index_html
+    assert 'id="decision-form"' not in index_html
 
     # Page 2: Decision Queue (queue.html)
     assert '<link rel="stylesheet" href="styles.css">' in queue_html
