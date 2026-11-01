@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from langchain_ollama import ChatOllama
 
-from fraud_scorer.agent.tools import configure_langchain_with_mcp_tools, get_langchain_fraud_tools
+from fraud_scorer.agents.tools import configure_langchain_with_mcp_tools, get_langchain_fraud_tools
 from fraud_scorer.mcp.server import FastMCP, create_server
 from fraud_scorer.mcp.tools.check_geo_anomaly import check_geo_anomaly, haversine_distance
 from fraud_scorer.mcp.tools.check_merchant_risk import check_merchant_risk

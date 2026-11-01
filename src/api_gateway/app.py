@@ -34,7 +34,7 @@ from api_gateway.schemas import (
 )
 from api_gateway.store import TransactionStore
 from api_gateway.websocket_manager import ConnectionManager
-from fraud_scorer.agent.orchestrator import FraudScorerOrchestrator, is_ollama_available
+from fraud_scorer.agents.orchestrator_agent import FraudScorerOrchestrator, is_ollama_available
 from fraud_scorer.models.transaction import FraudAssessment
 from sqllite import (
     DEFAULT_DB_PATH,
@@ -99,11 +99,12 @@ def create_app(
 
     @application.get("/health", tags=["Health"])
     async def health_check() -> dict[str, object]:
-        """Return API Gateway and Ollama backend connectivity status."""
+        """Return API Gateway, Ollama backend connectivity, and configured Agent flags."""
         return {
             "status": "ok",
             "ollama_connected": is_ollama_available(fraud_orchestrator.ollama_base_url),
             "model": fraud_orchestrator.model_name,
+            "agent_flags": fraud_orchestrator.agent_flags.model_dump(),
             "timestamp": datetime.now(UTC).isoformat(),
         }
 
@@ -117,25 +118,10 @@ def create_app(
     async def ingest_and_score_transaction(
         payload: TransactionIngestRequest,
     ) -> TransactionScoreResponse:
-        """Ingest user context and ACH/Card transaction details, return score=100 & APPROVE, and push WS event."""
+        """Ingest transaction details, coordinate evaluation via Orchestrator -> Decision Agent, and push WS event."""
         domain_tx = to_domain_transaction(payload)
-        evaluated_at = datetime.now(UTC)
-
-        # Per PRD-002: Return request in WebSocket response format with Score=100.0 and all transactions successful
-        assessment = FraudAssessment(
-            transaction_id=domain_tx.transaction_id,
-            account_id=payload.username,
-            overall_risk_score=100.0,
-            decision="APPROVE",
-            risk_factors=[],
-            reasoning_summary=(
-                f"Request received for user '{payload.username}' "
-                f"({payload.transaction_details.transaction_type} ${domain_tx.amount:,.2f} {domain_tx.currency}). "
-                "All transactions are successful (Score=100.0)."
-            ),
-            tools_invoked=[],
-            evaluated_at=evaluated_at,
-        )
+        assessment: FraudAssessment = await fraud_orchestrator.evaluate_transaction(domain_tx)
+        evaluated_at = assessment.evaluated_at
 
         tx_store.save(domain_tx, assessment)
 

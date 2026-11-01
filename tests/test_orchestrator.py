@@ -2,8 +2,8 @@
 
 import pytest
 
-from fraud_scorer.agent.orchestrator import FraudScorerOrchestrator, is_ollama_available
-from fraud_scorer.agent.tools import get_langchain_fraud_tools
+from fraud_scorer.agents.orchestrator_agent import FraudScorerOrchestrator, is_ollama_available
+from fraud_scorer.agents.tools import get_langchain_fraud_tools
 from fraud_scorer.models.transaction import Transaction
 
 

@@ -36,7 +36,7 @@ all = [
 
 [project.scripts]
 fraud-mcp-server = "fraud_scorer.mcp.server:main"
-fraud-scorer-agent = "fraud_scorer.agent.orchestrator:main"
+fraud-scorer-agent = "fraud_scorer.agents.orchestrator_agent:main"
 fraud-api-gateway = "api_gateway.main:main"
 fraud-web-client = "web_client.server:main"
 

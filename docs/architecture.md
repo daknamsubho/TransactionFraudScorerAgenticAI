@@ -61,34 +61,33 @@ flowchart TB
   - Ingress payload sanitization and schema validation against domain models.
   - Routing transaction payloads to the `Transaction Risk Score System`.
 
-### B. Transaction Risk Score System (Multi-Agent Ecosystem)
-An autonomous, coordinated multi-agent workflow built on **LangChain** (`langchain`, `langchain-core`, `langchain-ollama`) managing the end-to-end evaluation lifecycle:
+### B. Transaction Risk Score System (Multi-Agent Ecosystem & Modular Skills)
+An autonomous, coordinated multi-agent workflow built on **LangChain** (`langchain`, `langchain-core`, `langchain-ollama`) managing the end-to-end evaluation lifecycle. Every agent can be toggled on or off via `AgentFeatureFlags` (`src/fraud_scorer/config.py`):
 
-1. **Fraud Scorer Agent (LangChain Orchestrator)** (`src/fraud_scorer/agent/orchestrator.py`):
-   - Central coordinator and workflow manager powered by LangChain `ChatOllama` (and extensible to cloud LLM providers).
-   - Decomposes the transaction evaluation plan and delegates tasks to specialized sub-agents.
-   - Manages message state (`SystemMessage`, `HumanMessage`, `ToolMessage`), tool-calling loops, execution dependencies, and deterministic fallback chains.
+1. **Orchestrator Agent** (`src/fraud_scorer/agents/orchestrator_agent.py`):
+   - Pure manager/coordinator agent (`enable_orchestrator_agent`). Does **not** perform any scoring or approval decisioning itself.
+   - Coordinates enabled sub-agents (`DataRetrieverAgent`, `AnalysisAgent`) and passes all gathered profile context and risk factor evidence to the `DecisionAgent`, returning the final `FraudAssessment` to the `API Gateway` (`src/api_gateway/app.py`) to send back to the `Web Client`.
 
-2. **Data Retrieval Agent**:
-   - Interfaces with both the **MCP Tool Server** (structured operational data) and the **RAG Layer** (unstructured/semantic knowledge).
-   - Invokes MCP tools such as `lookup_account_history` to retrieve account age, prior chargeback records, historical average spend, and trust tiers.
-   - Queries the **LangChain Retriever** to fetch relevant historical fraud cases, account notes, and merchant risk advisories from the Vector Store.
-   - Supplies enriched profile and semantic context to downstream evaluation agents.
+2. **Data Retrieval Agent** (`src/fraud_scorer/agents/data_retriever_agent.py`):
+   - Controlled by `enable_data_retriever_agent`.
+   - Interfaces with the **MCP Tool Server** / SQLite RDBMS via the **Account History Skill** (`src/fraud_scorer/skills/account_history_skill.py`) and **RAG Layer** (roadmap).
+   - Invokes `lookup_account_history` to retrieve account age, prior chargeback records, historical average spend, and trust tiers.
+   - Supplies enriched `DataRetrievalResult` profile context to downstream agents.
 
-3. **Analysis Agent**:
-   - Specialized in multi-vector fraud signal computation and anomaly detection.
-   - Invokes analytical MCP tools wrapped as LangChain `@tool` adapters (`src/fraud_scorer/agent/tools.py`):
-     - `check_velocity`: Measures transaction burst frequencies and rapid volume spikes.
-     - `check_geo_anomaly`: Calculates haversine distances and flags impossible travel speeds.
-     - `check_merchant_risk`: Evaluates high-risk Merchant Category Codes (MCCs) and merchant reputation.
-   - Augments quantitative tool outputs with **RAG context** (e.g., known attack typologies and emerging fraud ring patterns) to synthesize categorized `RiskFactor` evidence blocks with severity rankings.
+3. **Analysis Agent** (`src/fraud_scorer/agents/analysis_agent.py`):
+   - Controlled by `enable_analysis_agent`.
+   - Specialized in multi-vector fraud signal computation and anomaly detection using modular skill files (`src/fraud_scorer/skills/`):
+     - `VelocityAnalysisSkill` (`src/fraud_scorer/skills/velocity_analysis_skill.py`) -> wraps `check_velocity`: Measures transaction burst frequencies and rapid volume spikes.
+     - `GeoAnomalySkill` (`src/fraud_scorer/skills/geo_anomaly_skill.py`) -> wraps `check_geo_anomaly`: Calculates haversine distances and flags impossible travel speeds.
+     - `MerchantRiskSkill` (`src/fraud_scorer/skills/merchant_risk_skill.py`) -> wraps `check_merchant_risk`: Evaluates high-risk Merchant Category Codes (MCCs) and merchant reputation.
+     - `AmountAnomalySkill` (`src/fraud_scorer/skills/amount_anomaly_skill.py`): Evaluates spend spikes relative to the customer's historical average spend and card-present status.
+   - Produces an `AnalysisResult` containing categorized `RiskFactor` evidence blocks with severity rankings.
 
-4. **Decision Agent**:
-   - Ingests the enriched profile data, RAG context, and `RiskFactor` evidence from the Analysis and Data Retrieval agents.
-   - Computes the composite normalized risk score (`0.0` to `100.0`).
-   - Grounds the final disposition (`APPROVE`, `REVIEW`, `DECLINE`) against organizational risk policies and compliance thresholds retrieved via the **RAG Layer**.
-   - Produces an explainable, citation-backed, auditable `FraudAssessment` rationale summarizing why the decision was made.
-   - Forwards the completed assessment to the `Communication Engine`.
+4. **Decision Agent** (`src/fraud_scorer/agents/decision_agent.py`):
+   - Controlled by `enable_decision_agent`.
+   - Ingests the enriched profile data (`DataRetrievalResult`) and `RiskFactor` evidence (`AnalysisResult`) passed by the Orchestrator Agent.
+   - Uses `RiskScoringDecisionSkill` (`src/fraud_scorer/skills/risk_scoring_decision_skill.py`) and optional LangChain `ChatOllama` reasoning to compute the composite normalized risk score (`0.0` to `100.0`) and final disposition (`APPROVE`, `REVIEW`, `DECLINE`).
+   - Returns the completed `FraudAssessment` to the Orchestrator Agent -> `API Gateway` -> `Web Client`.
 
 5. **Observability Agent (TBD)**:
    - *Roadmap component*: Real-time monitoring, LangChain callback tracing, telemetry emission, and latency tracking.
@@ -137,11 +136,11 @@ An autonomous, coordinated multi-agent workflow built on **LangChain** (`langcha
    - The `FraudScorerOrchestrator` uses `ChatOllama` (`langchain-ollama`) to run tool-capable local models (such as `llama3.2:3b`, `mistral`, or `qwen2.5`) with zero external API data exposure.
    - Because agents are built on `langchain-core` interfaces (`BaseChatModel`, `Runnable`), swapping between local Ollama models and cloud providers (Gemini, Anthropic Claude) requires only a configuration change.
 
-2. **MCP-to-LangChain Tool Binding (`src/fraud_scorer/agent/tools.py`)**:
+2. **MCP-to-LangChain Tool Binding (`src/fraud_scorer/agents/tools.py`)**:
    - Domain risk tools exposed by the `MCP Server` are wrapped with LangChain's `@tool` decorator (`BaseTool`), automatically generating JSON Schema definitions from Python type annotations and docstrings.
    - The `Analysis Agent` and `Data Retrieval Agent` bind these tools directly to the model via `llm.bind_tools(tools)`, enabling autonomous multi-step `ToolCall` selection and parallel tool execution.
 
-3. **Prompt Engineering & Conversation State Management (`src/fraud_scorer/agent/prompts.py`)**:
+3. **Prompt Engineering & Conversation State Management (`src/fraud_scorer/agents/prompts.py`)**:
    - Standardized prompt templates (`FRAUD_ANALYST_SYSTEM_PROMPT`, `TRANSACTION_EVALUATION_TEMPLATE`) construct structured sequences of `SystemMessage`, `HumanMessage`, `AIMessage`, and `ToolMessage` objects.
    - During the iterative reasoning loop, tool outputs are serialized into `ToolMessage` payloads correlated by `tool_call_id` so the LLM can synthesize multi-tool evidence before handing off to the `Decision Agent`.
 

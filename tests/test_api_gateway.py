@@ -82,35 +82,38 @@ def _sample_ach_payload(username: str = "acc_suspicious_01", amount: float = 480
 
 
 def test_health_endpoint(tmp_path: Path) -> None:
-    """Verify GET /health returns status ok."""
+    """Verify GET /health returns status ok and configured agent_flags."""
     client = TestClient(create_app(db_path=tmp_path / "test.db"))
     response = client.get("/health")
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
     assert "ollama_connected" in body
+    assert "agent_flags" in body
+    assert body["agent_flags"]["enable_orchestrator_agent"] is True
+    assert body["agent_flags"]["enable_decision_agent"] is True
 
 
 def test_ingest_card_transaction_score(tmp_path: Path) -> None:
-    """Verify POST /api/v1/transactions/score scores a CARD transaction with score=100.0 and APPROVE."""
+    """Verify POST /api/v1/transactions/score scores a normal CARD transaction via Decision Agent as APPROVE."""
     client = TestClient(create_app(db_path=tmp_path / "test.db"))
     response = client.post("/api/v1/transactions/score", json=_sample_card_payload())
     assert response.status_code == 200
     data = response.json()
     assert data["transaction_id"].startswith("tx_")
-    assert data["score"] == 100.0
+    assert data["score"] < 30.0
     assert data["status"] == "APPROVE"
 
 
 def test_ingest_ach_transaction_score(tmp_path: Path) -> None:
-    """Verify POST /api/v1/transactions/score scores an ACH transaction with score=100.0 and APPROVE."""
+    """Verify POST /api/v1/transactions/score scores a suspicious ACH transaction via Decision Agent as DECLINE."""
     client = TestClient(create_app(db_path=tmp_path / "test.db"))
     response = client.post("/api/v1/transactions/score", json=_sample_ach_payload())
     assert response.status_code == 200
     data = response.json()
     assert data["transaction_id"].startswith("tx_")
-    assert data["score"] == 100.0
-    assert data["status"] == "APPROVE"
+    assert data["score"] >= 70.0
+    assert data["status"] == "DECLINE"
 
 
 def test_ingest_validation_error_missing_rail_details(tmp_path: Path) -> None:
@@ -124,7 +127,7 @@ def test_ingest_validation_error_missing_rail_details(tmp_path: Path) -> None:
 
 
 def test_websocket_receives_scored_transaction_event(tmp_path: Path) -> None:
-    """Verify connected WebSocket receives WebSocketTransactionEvent with username and score_details."""
+    """Verify connected WebSocket receives WebSocketTransactionEvent with Decision Agent score and status."""
     client = TestClient(create_app(db_path=tmp_path / "test.db"))
 
     with client.websocket_connect("/ws/transactions/events") as websocket:
@@ -140,13 +143,14 @@ def test_websocket_receives_scored_transaction_event(tmp_path: Path) -> None:
         assert event["transaction_id"] == score_json["transaction_id"]
         assert event["username"] == "jdoe_99"
         assert event["amount"] == 2200.0
-        assert event["score"] == 100.0
+        assert event["score"] == score_json["score"]
         assert "score_details" in event
-        assert event["score_details"]["status"] == "APPROVE"
+        assert event["score_details"]["status"] == score_json["status"]
         assert event["score_details"]["request_payload"]["username"] == "jdoe_99"
         assert event["score_details"]["request_payload"]["transaction_details"]["amount"] == 2200.0
         assert isinstance(event["score_details"]["risk_factors"], list)
         assert isinstance(event["score_details"]["reasoning_summary"], str)
+        assert len(event["score_details"]["tools_invoked"]) >= 4
 
 
 def test_decision_accept_and_reject(tmp_path: Path) -> None:
