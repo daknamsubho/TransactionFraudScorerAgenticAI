@@ -143,6 +143,18 @@
         derivedWsUrlCode.textContent = "Invalid Gateway Base URL";
       }
     }
+    const derivedUsersUrl = document.getElementById("derived-users-url");
+    if (derivedUsersUrl) {
+      derivedUsersUrl.textContent = `${baseUrl}/api/v1/db/user-profiles`;
+    }
+    const derivedTxUrl = document.getElementById("derived-transactions-url");
+    if (derivedTxUrl) {
+      derivedTxUrl.textContent = `${baseUrl}/api/v1/db/transactions`;
+    }
+    const derivedScoresUrl = document.getElementById("derived-scores-url");
+    if (derivedScoresUrl) {
+      derivedScoresUrl.textContent = `${baseUrl}/api/v1/db/transaction-scores`;
+    }
   }
 
   // 3. WebSocket Connection Management (Page 2: queue.html)
@@ -521,7 +533,551 @@
     }
   }
 
-  // 9. Initialize Event Listeners & Defaults
+  // 9. RDBMS Paginated Table Controllers (Page 3: users.html, Page 4: transactions.html, Page 5: scores.html)
+  function initUsersTablePage() {
+    const tbody = document.getElementById("users-table-tbody");
+    if (!tbody) return;
+
+    const pageSizeSelect = document.getElementById("users-page-size");
+    const pageInfo = document.getElementById("users-page-info");
+    const prevBtn = document.getElementById("users-prev-btn");
+    const nextBtn = document.getElementById("users-next-btn");
+    const refreshBtn = document.getElementById("btn-refresh-users");
+    const form = document.getElementById("user-profile-form");
+    const btnUpdate = document.getElementById("btn-update-user");
+    const output = document.getElementById("user-crud-output");
+
+    let currentPage = 1;
+    let totalPages = 1;
+
+    async function loadUsersPage() {
+      const baseUrl = getNormalizedBaseUrl();
+      const pageSize = parseInt(pageSizeSelect ? pageSizeSelect.value : "10", 10) || 10;
+      try {
+        const resp = await fetch(`${baseUrl}/api/v1/db/user-profiles?page=${currentPage}&page_size=${pageSize}`);
+        const data = await resp.json();
+        totalPages = data.total_pages || 1;
+        currentPage = data.page || 1;
+        if (pageInfo) {
+          pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${data.total || 0} total)`;
+        }
+        if (prevBtn) prevBtn.disabled = currentPage <= 1;
+        if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+
+        tbody.innerHTML = "";
+        const items = data.items || [];
+        if (items.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">No user_profiles rows found.</td></tr>`;
+          return;
+        }
+
+        for (const item of items) {
+          const tr = document.createElement("tr");
+          const th = document.createElement("th");
+          th.scope = "row";
+          th.textContent = item.username;
+
+          const tdCreated = document.createElement("td");
+          tdCreated.textContent = item.created_date || "-";
+          const tdAddr = document.createElement("td");
+          tdAddr.textContent = item.address || "-";
+          const tdCity = document.createElement("td");
+          tdCity.textContent = item.city || "-";
+          const tdState = document.createElement("td");
+          tdState.textContent = item.state || "-";
+          const tdCountry = document.createElement("td");
+          tdCountry.textContent = item.country || "US";
+          const tdPostal = document.createElement("td");
+          tdPostal.textContent = item.postal_code || "-";
+
+          const tdActions = document.createElement("td");
+          const actionWrap = document.createElement("div");
+          actionWrap.className = "row-actions";
+
+          const btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.className = "btn btn-sm btn-outline";
+          btnEdit.textContent = "Edit";
+          btnEdit.addEventListener("click", () => {
+            document.getElementById("up-username").value = item.username || "";
+            document.getElementById("up-address").value = item.address || "";
+            document.getElementById("up-city").value = item.city || "";
+            document.getElementById("up-state").value = item.state || "";
+            document.getElementById("up-country").value = item.country || "US";
+            document.getElementById("up-postal").value = item.postal_code || "";
+            if (output) output.textContent = JSON.stringify(item, null, 2);
+          });
+
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "btn btn-sm btn-danger";
+          btnDelete.textContent = "Delete";
+          btnDelete.addEventListener("click", async () => {
+            const delResp = await fetch(
+              `${getNormalizedBaseUrl()}/api/v1/db/user-profiles/${encodeURIComponent(item.username)}`,
+              { method: "DELETE" }
+            );
+            const delData = await delResp.json();
+            if (output) output.textContent = JSON.stringify(delData, null, 2);
+            await loadUsersPage();
+          });
+
+          actionWrap.append(btnEdit, btnDelete);
+          tdActions.appendChild(actionWrap);
+          tr.append(th, tdCreated, tdAddr, tdCity, tdState, tdCountry, tdPostal, tdActions);
+          tbody.appendChild(tr);
+        }
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">Error loading user_profiles: ${err.message}</td></tr>`;
+      }
+    }
+
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        if (currentPage > 1) {
+          currentPage -= 1;
+          loadUsersPage();
+        }
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        if (currentPage < totalPages) {
+          currentPage += 1;
+          loadUsersPage();
+        }
+      });
+    }
+    if (pageSizeSelect) {
+      pageSizeSelect.addEventListener("change", () => {
+        currentPage = 1;
+        loadUsersPage();
+      });
+    }
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", loadUsersPage);
+    }
+    if (form) {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = {
+          username: document.getElementById("up-username").value.trim(),
+          address: document.getElementById("up-address").value.trim() || null,
+          city: document.getElementById("up-city").value.trim() || null,
+          state: document.getElementById("up-state").value.trim() || null,
+          country: document.getElementById("up-country").value.trim().toUpperCase() || "US",
+          postal_code: document.getElementById("up-postal").value.trim() || null,
+        };
+        const resp = await fetch(`${getNormalizedBaseUrl()}/api/v1/db/user-profiles`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (output) output.textContent = JSON.stringify(data, null, 2);
+        await loadUsersPage();
+      });
+    }
+    if (btnUpdate) {
+      btnUpdate.addEventListener("click", async () => {
+        const username = document.getElementById("up-username").value.trim();
+        if (!username) return;
+        const payload = {
+          address: document.getElementById("up-address").value.trim() || null,
+          city: document.getElementById("up-city").value.trim() || null,
+          state: document.getElementById("up-state").value.trim() || null,
+          country: document.getElementById("up-country").value.trim().toUpperCase() || "US",
+          postal_code: document.getElementById("up-postal").value.trim() || null,
+        };
+        const resp = await fetch(
+          `${getNormalizedBaseUrl()}/api/v1/db/user-profiles/${encodeURIComponent(username)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }
+        );
+        const data = await resp.json();
+        if (output) output.textContent = JSON.stringify(data, null, 2);
+        await loadUsersPage();
+      });
+    }
+
+    loadUsersPage();
+  }
+
+  function initTransactionsTablePage() {
+    const tbody = document.getElementById("transactions-table-tbody");
+    if (!tbody) return;
+
+    const statusFilter = document.getElementById("tx-filter-status");
+    const pageSizeSelect = document.getElementById("tx-page-size");
+    const pageInfo = document.getElementById("tx-page-info");
+    const prevBtn = document.getElementById("tx-prev-btn");
+    const nextBtn = document.getElementById("tx-next-btn");
+    const refreshBtn = document.getElementById("btn-refresh-transactions");
+    const form = document.getElementById("db-transaction-form");
+    const btnUpdate = document.getElementById("btn-update-db-tx");
+    const output = document.getElementById("tx-crud-output");
+
+    let currentPage = 1;
+    let totalPages = 1;
+
+    async function loadTransactionsPage() {
+      const baseUrl = getNormalizedBaseUrl();
+      const pageSize = parseInt(pageSizeSelect ? pageSizeSelect.value : "10", 10) || 10;
+      const statusVal = statusFilter ? statusFilter.value : "";
+      const params = new URLSearchParams({
+        page: String(currentPage),
+        page_size: String(pageSize),
+      });
+      if (statusVal) params.set("status", statusVal);
+
+      try {
+        const resp = await fetch(`${baseUrl}/api/v1/db/transactions?${params.toString()}`);
+        const data = await resp.json();
+        totalPages = data.total_pages || 1;
+        currentPage = data.page || 1;
+        if (pageInfo) {
+          pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${data.total || 0} total)`;
+        }
+        if (prevBtn) prevBtn.disabled = currentPage <= 1;
+        if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+
+        tbody.innerHTML = "";
+        const items = data.items || [];
+        if (items.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">No transactions rows found.</td></tr>`;
+          return;
+        }
+
+        for (const item of items) {
+          const tr = document.createElement("tr");
+          const th = document.createElement("th");
+          th.scope = "row";
+          th.textContent = item.transaction_id;
+
+          const tdUser = document.createElement("td");
+          tdUser.textContent = item.username;
+          const tdType = document.createElement("td");
+          tdType.textContent = item.transaction_type;
+          const tdAmount = document.createElement("td");
+          tdAmount.textContent = `${Number(item.amount).toFixed(2)} ${item.currency || "USD"}`;
+          const tdMerch = document.createElement("td");
+          tdMerch.textContent = item.merchant_name || item.merchant_id || "-";
+          const tdLoc = document.createElement("td");
+          tdLoc.textContent = `${item.city || "-"}, ${item.country || "US"}`;
+
+          const tdStatus = document.createElement("td");
+          const badge = document.createElement("span");
+          badge.className = `badge ${statusToBadgeClass(item.status)}`;
+          badge.textContent = item.status;
+          tdStatus.appendChild(badge);
+
+          const tdActions = document.createElement("td");
+          const actionWrap = document.createElement("div");
+          actionWrap.className = "row-actions";
+
+          const btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.className = "btn btn-sm btn-outline";
+          btnEdit.textContent = "Edit";
+          btnEdit.addEventListener("click", () => {
+            document.getElementById("db-tx-id").value = item.transaction_id;
+            document.getElementById("db-tx-username").value = item.username;
+            document.getElementById("db-tx-type").value = item.transaction_type;
+            document.getElementById("db-tx-amount").value = item.amount;
+            document.getElementById("db-tx-lat").value = item.latitude;
+            document.getElementById("db-tx-lon").value = item.longitude;
+            document.getElementById("db-tx-city").value = item.city || "";
+            document.getElementById("db-tx-status").value = item.status;
+            if (output) output.textContent = JSON.stringify(item, null, 2);
+          });
+
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "btn btn-sm btn-danger";
+          btnDelete.textContent = "Delete";
+          btnDelete.addEventListener("click", async () => {
+            const delResp = await fetch(
+              `${getNormalizedBaseUrl()}/api/v1/db/transactions/${encodeURIComponent(item.transaction_id)}`,
+              { method: "DELETE" }
+            );
+            const delData = await delResp.json();
+            if (output) output.textContent = JSON.stringify(delData, null, 2);
+            await loadTransactionsPage();
+          });
+
+          actionWrap.append(btnEdit, btnDelete);
+          tdActions.appendChild(actionWrap);
+          tr.append(th, tdUser, tdType, tdAmount, tdMerch, tdLoc, tdStatus, tdActions);
+          tbody.appendChild(tr);
+        }
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">Error loading transactions: ${err.message}</td></tr>`;
+      }
+    }
+
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        if (currentPage > 1) {
+          currentPage -= 1;
+          loadTransactionsPage();
+        }
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        if (currentPage < totalPages) {
+          currentPage += 1;
+          loadTransactionsPage();
+        }
+      });
+    }
+    if (pageSizeSelect) {
+      pageSizeSelect.addEventListener("change", () => {
+        currentPage = 1;
+        loadTransactionsPage();
+      });
+    }
+    if (statusFilter) {
+      statusFilter.addEventListener("change", () => {
+        currentPage = 1;
+        loadTransactionsPage();
+      });
+    }
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", loadTransactionsPage);
+    }
+    if (form) {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = {
+          transaction_id: document.getElementById("db-tx-id").value.trim() || null,
+          username: document.getElementById("db-tx-username").value.trim(),
+          transaction_type: document.getElementById("db-tx-type").value,
+          amount: parseFloat(document.getElementById("db-tx-amount").value),
+          latitude: parseFloat(document.getElementById("db-tx-lat").value),
+          longitude: parseFloat(document.getElementById("db-tx-lon").value),
+          city: document.getElementById("db-tx-city").value.trim() || null,
+          status: document.getElementById("db-tx-status").value,
+        };
+        const resp = await fetch(`${getNormalizedBaseUrl()}/api/v1/db/transactions`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (output) output.textContent = JSON.stringify(data, null, 2);
+        await loadTransactionsPage();
+      });
+    }
+    if (btnUpdate) {
+      btnUpdate.addEventListener("click", async () => {
+        const txId = document.getElementById("db-tx-id").value.trim();
+        if (!txId) return;
+        const payload = {
+          amount: parseFloat(document.getElementById("db-tx-amount").value),
+          city: document.getElementById("db-tx-city").value.trim() || null,
+          status: document.getElementById("db-tx-status").value,
+        };
+        const resp = await fetch(
+          `${getNormalizedBaseUrl()}/api/v1/db/transactions/${encodeURIComponent(txId)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }
+        );
+        const data = await resp.json();
+        if (output) output.textContent = JSON.stringify(data, null, 2);
+        await loadTransactionsPage();
+      });
+    }
+
+    loadTransactionsPage();
+  }
+
+  function initScoresTablePage() {
+    const tbody = document.getElementById("scores-table-tbody");
+    if (!tbody) return;
+
+    const pageSizeSelect = document.getElementById("scores-page-size");
+    const pageInfo = document.getElementById("scores-page-info");
+    const prevBtn = document.getElementById("scores-prev-btn");
+    const nextBtn = document.getElementById("scores-next-btn");
+    const refreshBtn = document.getElementById("btn-refresh-scores");
+    const form = document.getElementById("db-score-form");
+    const btnUpdate = document.getElementById("btn-update-db-score");
+    const output = document.getElementById("score-crud-output");
+
+    let currentPage = 1;
+    let totalPages = 1;
+
+    async function loadScoresPage() {
+      const baseUrl = getNormalizedBaseUrl();
+      const pageSize = parseInt(pageSizeSelect ? pageSizeSelect.value : "10", 10) || 10;
+      try {
+        const resp = await fetch(`${baseUrl}/api/v1/db/transaction-scores?page=${currentPage}&page_size=${pageSize}`);
+        const data = await resp.json();
+        totalPages = data.total_pages || 1;
+        currentPage = data.page || 1;
+        if (pageInfo) {
+          pageInfo.textContent = `Page ${currentPage} of ${totalPages} (${data.total || 0} total)`;
+        }
+        if (prevBtn) prevBtn.disabled = currentPage <= 1;
+        if (nextBtn) nextBtn.disabled = currentPage >= totalPages;
+
+        tbody.innerHTML = "";
+        const items = data.items || [];
+        if (items.length === 0) {
+          tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">No transaction_scores rows found.</td></tr>`;
+          return;
+        }
+
+        for (const item of items) {
+          const tr = document.createElement("tr");
+          const th = document.createElement("th");
+          th.scope = "row";
+          th.textContent = item.transaction_id;
+
+          const tdAssess = document.createElement("td");
+          tdAssess.textContent = item.assessment_id;
+          const tdScore = document.createElement("td");
+          tdScore.textContent = Number(item.score).toFixed(1);
+
+          const tdStatus = document.createElement("td");
+          const badge = document.createElement("span");
+          badge.className = `badge ${statusToBadgeClass(item.approval_status)}`;
+          badge.textContent = item.approval_status;
+          tdStatus.appendChild(badge);
+
+          const tdAccepted = document.createElement("td");
+          tdAccepted.textContent =
+            item.decision_accepted === null || item.decision_accepted === undefined
+              ? "-"
+              : item.decision_accepted
+              ? "Yes"
+              : "No";
+          const tdReason = document.createElement("td");
+          tdReason.textContent = item.decision_reason || item.reasoning_summary || "-";
+          const tdEval = document.createElement("td");
+          tdEval.textContent = item.evaluated_at || "-";
+
+          const tdActions = document.createElement("td");
+          const actionWrap = document.createElement("div");
+          actionWrap.className = "row-actions";
+
+          const btnEdit = document.createElement("button");
+          btnEdit.type = "button";
+          btnEdit.className = "btn btn-sm btn-outline";
+          btnEdit.textContent = "Edit";
+          btnEdit.addEventListener("click", () => {
+            document.getElementById("db-score-tx-id").value = item.transaction_id;
+            document.getElementById("db-score-value").value = item.score;
+            document.getElementById("db-score-status").value = item.approval_status;
+            document.getElementById("db-score-summary").value = item.reasoning_summary || "";
+            document.getElementById("db-score-reason").value = item.decision_reason || "";
+            if (output) output.textContent = JSON.stringify(item, null, 2);
+          });
+
+          const btnDelete = document.createElement("button");
+          btnDelete.type = "button";
+          btnDelete.className = "btn btn-sm btn-danger";
+          btnDelete.textContent = "Delete";
+          btnDelete.addEventListener("click", async () => {
+            const delResp = await fetch(
+              `${getNormalizedBaseUrl()}/api/v1/db/transaction-scores/${encodeURIComponent(item.transaction_id)}`,
+              { method: "DELETE" }
+            );
+            const delData = await delResp.json();
+            if (output) output.textContent = JSON.stringify(delData, null, 2);
+            await loadScoresPage();
+          });
+
+          actionWrap.append(btnEdit, btnDelete);
+          tdActions.appendChild(actionWrap);
+          tr.append(th, tdAssess, tdScore, tdStatus, tdAccepted, tdReason, tdEval, tdActions);
+          tbody.appendChild(tr);
+        }
+      } catch (err) {
+        tbody.innerHTML = `<tr><td colspan="8" class="empty-cell">Error loading transaction_scores: ${err.message}</td></tr>`;
+      }
+    }
+
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        if (currentPage > 1) {
+          currentPage -= 1;
+          loadScoresPage();
+        }
+      });
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        if (currentPage < totalPages) {
+          currentPage += 1;
+          loadScoresPage();
+        }
+      });
+    }
+    if (pageSizeSelect) {
+      pageSizeSelect.addEventListener("change", () => {
+        currentPage = 1;
+        loadScoresPage();
+      });
+    }
+    if (refreshBtn) {
+      refreshBtn.addEventListener("click", loadScoresPage);
+    }
+    if (form) {
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const payload = {
+          transaction_id: document.getElementById("db-score-tx-id").value.trim(),
+          score: parseFloat(document.getElementById("db-score-value").value),
+          approval_status: document.getElementById("db-score-status").value,
+          reasoning_summary: document.getElementById("db-score-summary").value.trim(),
+          decision_reason: document.getElementById("db-score-reason").value.trim() || null,
+        };
+        const resp = await fetch(`${getNormalizedBaseUrl()}/api/v1/db/transaction-scores`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (output) output.textContent = JSON.stringify(data, null, 2);
+        await loadScoresPage();
+      });
+    }
+    if (btnUpdate) {
+      btnUpdate.addEventListener("click", async () => {
+        const txId = document.getElementById("db-score-tx-id").value.trim();
+        if (!txId) return;
+        const payload = {
+          score: parseFloat(document.getElementById("db-score-value").value),
+          approval_status: document.getElementById("db-score-status").value,
+          reasoning_summary: document.getElementById("db-score-summary").value.trim(),
+          decision_reason: document.getElementById("db-score-reason").value.trim() || null,
+        };
+        const resp = await fetch(
+          `${getNormalizedBaseUrl()}/api/v1/db/transaction-scores/${encodeURIComponent(txId)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          }
+        );
+        const data = await resp.json();
+        if (output) output.textContent = JSON.stringify(data, null, 2);
+        await loadScoresPage();
+      });
+    }
+
+    loadScoresPage();
+  }
+
+  // 10. Initialize Event Listeners & Defaults
   function init() {
     UserInvalidFallback.init(document);
 
@@ -607,6 +1163,11 @@
     if (wsEventsTbody) {
       connectWebSocket();
     }
+
+    // Initialize RDBMS table pages if active
+    initUsersTablePage();
+    initTransactionsTablePage();
+    initScoresTablePage();
   }
 
   if (document.readyState === "loading") {

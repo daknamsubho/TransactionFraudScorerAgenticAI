@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Profiles (RDBMS) — Transaction Fraud Scorer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top-bar">
+      <div class="header-brand">
+        <h1>Transaction Fraud Scorer</h1>
+        <p class="subtitle">Page 3: SQLite RDBMS — <code>user_profiles</code> Table (Paginated View &amp; CRUD)</p>
+      </div>
+
+      <nav class="app-nav" aria-label="Primary Navigation">
+        <a href="index.html" class="nav-link">1. Submit Transaction</a>
+        <a href="queue.html" class="nav-link">2. Decision Queue (WebSocket)</a>
+        <a href="users.html" class="nav-link active" aria-current="page">3. User Profiles (RDBMS)</a>
+        <a href="transactions.html" class="nav-link">4. Transactions (RDBMS)</a>
+        <a href="scores.html" class="nav-link">5. Transaction Scores (RDBMS)</a>
+      </nav>
+    </div>
+
+    <section class="gateway-config-bar" aria-label="API Gateway Configuration">
+      <div class="field config-url-field">
+        <label for="gateway-url">API Gateway Base URL</label>
+        <span id="gateway-url-hint" class="hint">Format: http://localhost:8000 or https://*.trycloudflare.com</span>
+        <input
+          type="url"
+          id="gateway-url"
+          name="gateway_url"
+          required
+          value="http://localhost:8000"
+          placeholder="https://your-tunnel.trycloudflare.com"
+          aria-describedby="gateway-url-hint"
+          aria-errormessage="gateway-url-error"
+        >
+        <div id="gateway-url-error" class="error-msg">
+          <span aria-hidden="true">❌</span> Please enter a valid http:// or https:// Gateway URL.
+        </div>
+      </div>
+
+      <div class="config-actions">
+        <button type="button" id="btn-refresh-users" class="btn btn-primary">Refresh Table</button>
+        <button type="button" id="btn-check-health" class="btn btn-outline">Check Health</button>
+      </div>
+
+      <div class="status-indicators">
+        <div class="status-pill">
+          <span class="status-label">RDBMS Endpoint:</span>
+          <code id="derived-users-url">http://localhost:8000/api/v1/db/user-profiles</code>
+        </div>
+        <div id="health-status-text" class="health-status-text" aria-live="polite"></div>
+      </div>
+    </section>
+  </header>
+
+  <main class="single-page-container">
+    <section class="panel" aria-labelledby="users-table-heading">
+      <div class="panel-header">
+        <h2 id="users-table-heading">User Profiles Table (`user_profiles`)</h2>
+        <div class="pagination-bar" aria-label="User Profiles Pagination">
+          <div class="pagination-size">
+            <label for="users-page-size">Rows per page:</label>
+            <select id="users-page-size">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+          <span id="users-page-info" class="pagination-info" aria-live="polite">Page 1 of 1 (0 total)</span>
+          <div class="pagination-controls">
+            <button type="button" id="users-prev-btn" class="btn btn-sm btn-outline" disabled>Previous</button>
+            <button type="button" id="users-next-btn" class="btn btn-sm btn-outline" disabled>Next</button>
+          </div>
+        </div>
+      </div>
+
+      <div tabindex="0" role="region" aria-labelledby="users-table-caption" class="table-wrapper">
+        <table id="users-rdbms-table" class="rdbms-users-table">
+          <caption id="users-table-caption" class="sr-only">Paginated rows from the user_profiles SQLite RDBMS table</caption>
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Created Date</th>
+              <th>Address</th>
+              <th>City</th>
+              <th>State</th>
+              <th>Country</th>
+              <th>Postal Code</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="users-table-tbody">
+            <tr>
+              <td colspan="8" class="empty-cell">Loading user profiles from RDBMS...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <section class="decision-section" aria-labelledby="user-crud-heading">
+        <h3 id="user-crud-heading">Create / Update User Profile (`POST` / `PUT /api/v1/db/user-profiles`)</h3>
+        <form id="user-profile-form">
+          <div class="form-row">
+            <div class="field">
+              <label for="up-username">Username</label>
+              <span id="up-username-hint" class="hint">Primary key (`username`)</span>
+              <input
+                type="text"
+                id="up-username"
+                required
+                placeholder="e.g. jdoe_99"
+                aria-describedby="up-username-hint"
+                aria-errormessage="up-username-error"
+              >
+              <div id="up-username-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Username is required.
+              </div>
+            </div>
+            <div class="field">
+              <label for="up-address">Address</label>
+              <span class="hint">Street address</span>
+              <input type="text" id="up-address" placeholder="123 Market St">
+            </div>
+            <div class="field">
+              <label for="up-city">City</label>
+              <span class="hint">City name</span>
+              <input type="text" id="up-city" placeholder="San Francisco">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="up-state">State</label>
+              <span class="hint">State / Province</span>
+              <input type="text" id="up-state" placeholder="CA">
+            </div>
+            <div class="field">
+              <label for="up-country">Country</label>
+              <span class="hint">ISO Country (2-3 chars)</span>
+              <input type="text" id="up-country" value="US" required minlength="2" maxlength="3">
+            </div>
+            <div class="field">
+              <label for="up-postal">Postal Code</label>
+              <span class="hint">ZIP / Postal code</span>
+              <input type="text" id="up-postal" placeholder="94103">
+            </div>
+          </div>
+
+          <div class="decision-buttons">
+            <button type="submit" id="btn-create-user" class="btn btn-primary">Create / Upsert (POST)</button>
+            <button type="button" id="btn-update-user" class="btn btn-success">Update Existing (PUT)</button>
+          </div>
+        </form>
+        <pre id="user-crud-output" class="code-output">Select a row or submit the form to view RDBMS response.</pre>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

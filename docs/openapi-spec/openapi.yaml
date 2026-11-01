@@ -27,6 +27,8 @@ tags:
     description: Transaction ingestion, fraud scoring, and manual review disposition endpoints.
   - name: WebSocket
     description: Real-time WebSocket event stream for web clients and analyst dashboards.
+  - name: Database
+    description: RDBMS CRUD and paginated query endpoints for user_profiles, transactions, and transaction_scores.
 
 paths:
   /api/v1/transactions/score:
@@ -304,6 +306,358 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/db/user-profiles:
+    get:
+      tags:
+        - Database
+      summary: List user profiles (paginated)
+      operationId: listUserProfiles
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Paginated list of user profiles.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedUserProfilesResponse'
+    post:
+      tags:
+        - Database
+      summary: Create or upsert a user profile
+      operationId: createUserProfile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileCreateRequest'
+      responses:
+        '200':
+          description: User profile created or updated.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileRecord'
+
+  /api/v1/db/user-profiles/{username}:
+    get:
+      tags:
+        - Database
+      summary: Get a user profile by username
+      operationId: getUserProfile
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileRecord'
+        '404':
+          description: User profile not found.
+    put:
+      tags:
+        - Database
+      summary: Update a user profile by username
+      operationId: updateUserProfile
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserProfileUpdateRequest'
+      responses:
+        '200':
+          description: Updated user profile record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfileRecord'
+        '404':
+          description: User profile not found.
+    delete:
+      tags:
+        - Database
+      summary: Delete a user profile by username
+      operationId: deleteUserProfile
+      parameters:
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: User profile deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteRecordResponse'
+        '404':
+          description: User profile not found.
+
+  /api/v1/db/transactions:
+    get:
+      tags:
+        - Database
+      summary: List transactions (paginated)
+      operationId: listTransactions
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+        - name: username
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Paginated list of transactions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTransactionsResponse'
+    post:
+      tags:
+        - Database
+      summary: Create a transaction record in RDBMS
+      operationId: createTransactionRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionCreateRequest'
+      responses:
+        '200':
+          description: Transaction record created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRecord'
+
+  /api/v1/db/transactions/{transaction_id}:
+    get:
+      tags:
+        - Database
+      summary: Get a transaction record by transaction_id
+      operationId: getTransactionRecord
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRecord'
+        '404':
+          description: Transaction not found.
+    put:
+      tags:
+        - Database
+      summary: Update a transaction record by transaction_id
+      operationId: updateTransactionRecord
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionUpdateRequest'
+      responses:
+        '200':
+          description: Updated transaction record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionRecord'
+        '404':
+          description: Transaction not found.
+    delete:
+      tags:
+        - Database
+      summary: Delete a transaction record by transaction_id
+      operationId: deleteTransactionRecord
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction record deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteRecordResponse'
+        '404':
+          description: Transaction not found.
+
+  /api/v1/db/transaction-scores:
+    get:
+      tags:
+        - Database
+      summary: List transaction scores (paginated)
+      operationId: listTransactionScores
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: page_size
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+      responses:
+        '200':
+          description: Paginated list of transaction scores.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedTransactionScoresResponse'
+    post:
+      tags:
+        - Database
+      summary: Create a transaction score record in RDBMS
+      operationId: createTransactionScoreRecord
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionScoreCreateRequest'
+      responses:
+        '200':
+          description: Transaction score record created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionScoreRecord'
+
+  /api/v1/db/transaction-scores/{transaction_id}:
+    get:
+      tags:
+        - Database
+      summary: Get a transaction score record by transaction_id
+      operationId: getTransactionScoreRecord
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction score record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionScoreRecord'
+        '404':
+          description: Transaction score not found.
+    put:
+      tags:
+        - Database
+      summary: Update a transaction score record by transaction_id
+      operationId: updateTransactionScoreRecord
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransactionScoreUpdateRequest'
+      responses:
+        '200':
+          description: Updated transaction score record.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransactionScoreRecord'
+        '404':
+          description: Transaction score not found.
+    delete:
+      tags:
+        - Database
+      summary: Delete a transaction score record by transaction_id
+      operationId: deleteTransactionScoreRecord
+      parameters:
+        - name: transaction_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Transaction score record deleted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteRecordResponse'
+        '404':
+          description: Transaction score not found.
 
 components:
   schemas:
@@ -831,3 +1185,526 @@ components:
           type: object
           additionalProperties: true
           description: Optional validation or diagnostic details.
+
+    UserProfileRecord:
+      type: object
+      required:
+        - username
+        - created_date
+        - country
+      properties:
+        username:
+          type: string
+          example: "jdoe_99"
+        created_date:
+          type: string
+          example: "2026-10-31T18:00:00Z"
+        address:
+          type:
+            - string
+            - "null"
+          example: "123 Market St"
+        city:
+          type:
+            - string
+            - "null"
+          example: "San Francisco"
+        state:
+          type:
+            - string
+            - "null"
+          example: "CA"
+        country:
+          type: string
+          default: "US"
+          example: "US"
+        postal_code:
+          type:
+            - string
+            - "null"
+          example: "94103"
+        updated_at:
+          type:
+            - string
+            - "null"
+
+    UserProfileCreateRequest:
+      type: object
+      required:
+        - username
+      properties:
+        username:
+          type: string
+        created_date:
+          type:
+            - string
+            - "null"
+        address:
+          type:
+            - string
+            - "null"
+        city:
+          type:
+            - string
+            - "null"
+        state:
+          type:
+            - string
+            - "null"
+        country:
+          type: string
+          default: "US"
+        postal_code:
+          type:
+            - string
+            - "null"
+
+    UserProfileUpdateRequest:
+      type: object
+      properties:
+        address:
+          type:
+            - string
+            - "null"
+        city:
+          type:
+            - string
+            - "null"
+        state:
+          type:
+            - string
+            - "null"
+        country:
+          type: string
+          default: "US"
+        postal_code:
+          type:
+            - string
+            - "null"
+
+    PaginatedUserProfilesResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - page_size
+        - total_pages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserProfileRecord'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_pages:
+          type: integer
+
+    TransactionRecord:
+      type: object
+      required:
+        - transaction_id
+        - username
+        - transaction_type
+        - amount
+        - currency
+        - timestamp
+        - latitude
+        - longitude
+        - country
+        - status
+      properties:
+        transaction_id:
+          type: string
+        username:
+          type: string
+        transaction_type:
+          type: string
+          enum:
+            - CARD
+            - ACH
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+        timestamp:
+          type: string
+        ip_address:
+          type:
+            - string
+            - "null"
+        device_id:
+          type:
+            - string
+            - "null"
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        city:
+          type:
+            - string
+            - "null"
+        state:
+          type:
+            - string
+            - "null"
+        country:
+          type: string
+        postal_code:
+          type:
+            - string
+            - "null"
+        merchant_id:
+          type:
+            - string
+            - "null"
+        merchant_name:
+          type:
+            - string
+            - "null"
+        mcc:
+          type:
+            - string
+            - "null"
+        merchant_country:
+          type:
+            - string
+            - "null"
+        payment_method_type:
+          type:
+            - string
+            - "null"
+        card_or_account_last_four:
+          type:
+            - string
+            - "null"
+        is_card_present:
+          type: boolean
+        payment_details:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          enum:
+            - PENDING
+            - APPROVE
+            - REVIEW
+            - DECLINE
+            - ACCEPTED
+            - REJECTED
+        created_at:
+          type: string
+        updated_at:
+          type: string
+
+    TransactionCreateRequest:
+      type: object
+      required:
+        - username
+        - transaction_type
+        - amount
+        - latitude
+        - longitude
+      properties:
+        transaction_id:
+          type:
+            - string
+            - "null"
+        username:
+          type: string
+        transaction_type:
+          type: string
+          enum:
+            - CARD
+            - ACH
+        amount:
+          type: number
+          format: double
+        currency:
+          type: string
+          default: "USD"
+        timestamp:
+          type:
+            - string
+            - "null"
+        ip_address:
+          type:
+            - string
+            - "null"
+        device_id:
+          type:
+            - string
+            - "null"
+        latitude:
+          type: number
+          format: double
+        longitude:
+          type: number
+          format: double
+        city:
+          type:
+            - string
+            - "null"
+        state:
+          type:
+            - string
+            - "null"
+        country:
+          type: string
+          default: "US"
+        postal_code:
+          type:
+            - string
+            - "null"
+        merchant_id:
+          type:
+            - string
+            - "null"
+        merchant_name:
+          type:
+            - string
+            - "null"
+        mcc:
+          type:
+            - string
+            - "null"
+        merchant_country:
+          type: string
+          default: "US"
+        payment_method_type:
+          type:
+            - string
+            - "null"
+        card_or_account_last_four:
+          type:
+            - string
+            - "null"
+        is_card_present:
+          type: boolean
+          default: false
+        payment_details:
+          type: object
+          additionalProperties: true
+        status:
+          type: string
+          default: "REVIEW"
+
+    TransactionUpdateRequest:
+      type: object
+      properties:
+        amount:
+          type:
+            - number
+            - "null"
+        city:
+          type:
+            - string
+            - "null"
+        state:
+          type:
+            - string
+            - "null"
+        country:
+          type:
+            - string
+            - "null"
+        merchant_name:
+          type:
+            - string
+            - "null"
+        mcc:
+          type:
+            - string
+            - "null"
+        status:
+          type:
+            - string
+            - "null"
+
+    PaginatedTransactionsResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - page_size
+        - total_pages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionRecord'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_pages:
+          type: integer
+
+    TransactionScoreRecord:
+      type: object
+      required:
+        - assessment_id
+        - transaction_id
+        - score
+        - approval_status
+        - reasoning_summary
+        - evaluated_at
+      properties:
+        assessment_id:
+          type: string
+        transaction_id:
+          type: string
+        score:
+          type: number
+          format: double
+        approval_status:
+          type: string
+          enum:
+            - APPROVE
+            - REVIEW
+            - DECLINE
+            - ACCEPTED
+            - REJECTED
+        decision_accepted:
+          type:
+            - boolean
+            - "null"
+        decision_reason:
+          type:
+            - string
+            - "null"
+        reasoning_summary:
+          type: string
+        risk_factors:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        tools_invoked:
+          type: array
+          items:
+            type: string
+        evaluated_at:
+          type: string
+        decided_at:
+          type:
+            - string
+            - "null"
+
+    TransactionScoreCreateRequest:
+      type: object
+      required:
+        - transaction_id
+        - score
+        - approval_status
+        - reasoning_summary
+      properties:
+        assessment_id:
+          type:
+            - string
+            - "null"
+        transaction_id:
+          type: string
+        score:
+          type: number
+          format: double
+        approval_status:
+          type: string
+        decision_accepted:
+          type:
+            - boolean
+            - "null"
+        decision_reason:
+          type:
+            - string
+            - "null"
+        reasoning_summary:
+          type: string
+        risk_factors:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        tools_invoked:
+          type: array
+          items:
+            type: string
+
+    TransactionScoreUpdateRequest:
+      type: object
+      required:
+        - score
+        - approval_status
+        - reasoning_summary
+      properties:
+        score:
+          type: number
+          format: double
+        approval_status:
+          type: string
+        decision_accepted:
+          type:
+            - boolean
+            - "null"
+        decision_reason:
+          type:
+            - string
+            - "null"
+        reasoning_summary:
+          type: string
+        risk_factors:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        tools_invoked:
+          type: array
+          items:
+            type: string
+
+    PaginatedTransactionScoresResponse:
+      type: object
+      required:
+        - items
+        - total
+        - page
+        - page_size
+        - total_pages
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TransactionScoreRecord'
+        total:
+          type: integer
+        page:
+          type: integer
+        page_size:
+          type: integer
+        total_pages:
+          type: integer
+
+    DeleteRecordResponse:
+      type: object
+      required:
+        - deleted
+        - id
+        - message
+      properties:
+        deleted:
+          type: boolean
+        id:
+          type: string
+        message:
+          type: string

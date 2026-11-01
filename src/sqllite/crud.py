@@ -1,6 +1,7 @@
 """CRUD functions (SELECT, INSERT, UPDATE, DELETE) and dynamic profile metric calculations."""
 
 import json
+import math
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,9 @@ from uuid import uuid4
 
 from sqllite.database import DEFAULT_DB_PATH, get_connection, init_db
 from sqllite.queries import (
+    COUNT_TRANSACTION_SCORES_SQL,
+    COUNT_TRANSACTIONS_SQL,
+    COUNT_USER_PROFILES_SQL,
     DELETE_TRANSACTION_SCORE_SQL,
     DELETE_TRANSACTION_SQL,
     DELETE_USER_PROFILE_SQL,
@@ -16,12 +20,16 @@ from sqllite.queries import (
     SELECT_ALL_USER_PROFILES_SQL,
     SELECT_TRANSACTION_BY_ID_SQL,
     SELECT_TRANSACTION_SCORE_BY_TX_ID_SQL,
+    SELECT_TRANSACTION_SCORES_PAGINATED_SQL,
     SELECT_TRANSACTION_WITH_SCORE_BY_TX_ID_SQL,
     SELECT_TRANSACTIONS_BY_STATUS_SQL,
     SELECT_TRANSACTIONS_BY_USERNAME_SQL,
+    SELECT_TRANSACTIONS_PAGINATED_SQL,
     SELECT_USER_PROFILE_BY_USERNAME_SQL,
+    SELECT_USER_PROFILES_PAGINATED_SQL,
     SELECT_USER_TRANSACTION_STATS_SQL,
     UPDATE_TRANSACTION_DECISION_SQL,
+    UPDATE_TRANSACTION_RECORD_SQL,
     UPDATE_TRANSACTION_SCORE_SQL,
     UPDATE_TRANSACTION_STATUS_SQL,
     UPDATE_USER_PROFILE_SQL,
@@ -88,6 +96,35 @@ def select_all_user_profiles(
     with get_connection(db_path) as conn:
         rows = conn.execute(SELECT_ALL_USER_PROFILES_SQL).fetchall()
         return [dict(row) for row in rows]
+
+
+def select_user_profiles_paginated(
+    page: int = 1,
+    page_size: int = 10,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Select a paginated slice of UserProfile records."""
+    init_db(db_path)
+    safe_page = max(1, page)
+    safe_size = max(1, min(100, page_size))
+    offset = (safe_page - 1) * safe_size
+
+    with get_connection(db_path) as conn:
+        count_row = conn.execute(COUNT_USER_PROFILES_SQL).fetchone()
+        total = int(count_row["total"]) if count_row else 0
+        rows = conn.execute(
+            SELECT_USER_PROFILES_PAGINATED_SQL,
+            {"limit": safe_size, "offset": offset},
+        ).fetchall()
+
+    total_pages = max(1, math.ceil(total / safe_size)) if total > 0 else 1
+    return {
+        "items": [dict(row) for row in rows],
+        "total": total,
+        "page": safe_page,
+        "page_size": safe_size,
+        "total_pages": total_pages,
+    }
 
 
 def update_user_profile(
@@ -254,6 +291,48 @@ def select_transactions_by_status(
         return [_deserialize_transaction_row(dict(row)) for row in rows]
 
 
+def select_transactions_paginated(
+    page: int = 1,
+    page_size: int = 10,
+    username: str | None = None,
+    status: str | None = None,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Select a paginated slice of Transaction records with optional username and status filters."""
+    init_db(db_path)
+    safe_page = max(1, page)
+    safe_size = max(1, min(100, page_size))
+    offset = (safe_page - 1) * safe_size
+
+    clean_user = username.strip() if username and username.strip() else None
+    clean_status = status.strip().upper() if status and status.strip() else None
+
+    with get_connection(db_path) as conn:
+        count_row = conn.execute(
+            COUNT_TRANSACTIONS_SQL,
+            {"username": clean_user, "status": clean_status},
+        ).fetchone()
+        total = int(count_row["total"]) if count_row else 0
+        rows = conn.execute(
+            SELECT_TRANSACTIONS_PAGINATED_SQL,
+            {
+                "username": clean_user,
+                "status": clean_status,
+                "limit": safe_size,
+                "offset": offset,
+            },
+        ).fetchall()
+
+    total_pages = max(1, math.ceil(total / safe_size)) if total > 0 else 1
+    return {
+        "items": [_deserialize_transaction_row(dict(row)) for row in rows],
+        "total": total,
+        "page": safe_page,
+        "page_size": safe_size,
+        "total_pages": total_pages,
+    }
+
+
 def update_transaction_status(
     transaction_id: str,
     status: str,
@@ -268,6 +347,38 @@ def update_transaction_status(
     }
     with get_connection(db_path) as conn:
         conn.execute(UPDATE_TRANSACTION_STATUS_SQL, params)
+        conn.commit()
+    return select_transaction(transaction_id, db_path=db_path)
+
+
+def update_transaction_record(
+    transaction_id: str,
+    amount: float | None = None,
+    city: str | None = None,
+    state: str | None = None,
+    country: str | None = None,
+    merchant_name: str | None = None,
+    mcc: str | None = None,
+    status: str | None = None,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, Any] | None:
+    """Update mutable fields on an existing Transaction record."""
+    init_db(db_path)
+    if select_transaction(transaction_id, db_path=db_path) is None:
+        return None
+    params = {
+        "transaction_id": transaction_id,
+        "amount": float(amount) if amount is not None else None,
+        "city": city,
+        "state": state,
+        "country": country.upper() if country else None,
+        "merchant_name": merchant_name,
+        "mcc": mcc,
+        "status": status.upper() if status else None,
+        "updated_at": _now_iso(),
+    }
+    with get_connection(db_path) as conn:
+        conn.execute(UPDATE_TRANSACTION_RECORD_SQL, params)
         conn.commit()
     return select_transaction(transaction_id, db_path=db_path)
 
@@ -367,6 +478,35 @@ def select_transaction_score(
     with get_connection(db_path) as conn:
         row = conn.execute(SELECT_TRANSACTION_SCORE_BY_TX_ID_SQL, {"transaction_id": transaction_id}).fetchone()
         return _deserialize_score_row(dict(row)) if row is not None else None
+
+
+def select_transaction_scores_paginated(
+    page: int = 1,
+    page_size: int = 10,
+    db_path: str | Path = DEFAULT_DB_PATH,
+) -> dict[str, Any]:
+    """Select a paginated slice of TransactionScore records."""
+    init_db(db_path)
+    safe_page = max(1, page)
+    safe_size = max(1, min(100, page_size))
+    offset = (safe_page - 1) * safe_size
+
+    with get_connection(db_path) as conn:
+        count_row = conn.execute(COUNT_TRANSACTION_SCORES_SQL).fetchone()
+        total = int(count_row["total"]) if count_row else 0
+        rows = conn.execute(
+            SELECT_TRANSACTION_SCORES_PAGINATED_SQL,
+            {"limit": safe_size, "offset": offset},
+        ).fetchall()
+
+    total_pages = max(1, math.ceil(total / safe_size)) if total > 0 else 1
+    return {
+        "items": [_deserialize_score_row(dict(row)) for row in rows],
+        "total": total,
+        "page": safe_page,
+        "page_size": safe_size,
+        "total_pages": total_pages,
+    }
 
 
 def select_transaction_with_score(

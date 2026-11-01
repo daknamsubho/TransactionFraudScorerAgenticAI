@@ -83,6 +83,25 @@ FROM user_profiles
 ORDER BY created_date DESC;
 """
 
+COUNT_USER_PROFILES_SQL = """
+SELECT COUNT(*) AS total FROM user_profiles;
+"""
+
+SELECT_USER_PROFILES_PAGINATED_SQL = """
+SELECT
+    username,
+    created_date,
+    address,
+    city,
+    state,
+    country,
+    postal_code,
+    updated_at
+FROM user_profiles
+ORDER BY created_date DESC, username ASC
+LIMIT :limit OFFSET :offset;
+"""
+
 UPDATE_USER_PROFILE_SQL = """
 UPDATE user_profiles
 SET
@@ -263,6 +282,61 @@ SET
 WHERE transaction_id = :transaction_id;
 """
 
+UPDATE_TRANSACTION_RECORD_SQL = """
+UPDATE transactions
+SET
+    amount = COALESCE(:amount, amount),
+    city = COALESCE(:city, city),
+    state = COALESCE(:state, state),
+    country = COALESCE(:country, country),
+    merchant_name = COALESCE(:merchant_name, merchant_name),
+    mcc = COALESCE(:mcc, mcc),
+    status = COALESCE(:status, status),
+    updated_at = :updated_at
+WHERE transaction_id = :transaction_id;
+"""
+
+COUNT_TRANSACTIONS_SQL = """
+SELECT COUNT(*) AS total
+FROM transactions
+WHERE (:username IS NULL OR username = :username)
+  AND (:status IS NULL OR status = :status);
+"""
+
+SELECT_TRANSACTIONS_PAGINATED_SQL = """
+SELECT
+    transaction_id,
+    username,
+    transaction_type,
+    amount,
+    currency,
+    timestamp,
+    ip_address,
+    device_id,
+    latitude,
+    longitude,
+    city,
+    state,
+    country,
+    postal_code,
+    merchant_id,
+    merchant_name,
+    mcc,
+    merchant_country,
+    payment_method_type,
+    card_or_account_last_four,
+    is_card_present,
+    payment_details_json,
+    status,
+    created_at,
+    updated_at
+FROM transactions
+WHERE (:username IS NULL OR username = :username)
+  AND (:status IS NULL OR status = :status)
+ORDER BY timestamp DESC, transaction_id DESC
+LIMIT :limit OFFSET :offset;
+"""
+
 DELETE_TRANSACTION_SQL = """
 DELETE FROM transactions
 WHERE transaction_id = :transaction_id;
@@ -387,6 +461,28 @@ WHERE transaction_id = :transaction_id;
 DELETE_TRANSACTION_SCORE_SQL = """
 DELETE FROM transaction_scores
 WHERE transaction_id = :transaction_id;
+"""
+
+COUNT_TRANSACTION_SCORES_SQL = """
+SELECT COUNT(*) AS total FROM transaction_scores;
+"""
+
+SELECT_TRANSACTION_SCORES_PAGINATED_SQL = """
+SELECT
+    assessment_id,
+    transaction_id,
+    score,
+    approval_status,
+    decision_accepted,
+    decision_reason,
+    reasoning_summary,
+    risk_factors_json,
+    tools_invoked_json,
+    evaluated_at,
+    decided_at
+FROM transaction_scores
+ORDER BY evaluated_at DESC, transaction_id DESC
+LIMIT :limit OFFSET :offset;
 """
 
 # =============================================================================

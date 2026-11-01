@@ -59,4 +59,37 @@ def test_app_js_handles_rest_and_websocket_endpoints() -> None:
     assert "/ws/transactions/events" in js
     assert "/api/v1/transactions/score" in js
     assert "/api/v1/transactions/decision" in js
+    assert "/api/v1/db/user-profiles" in js
+    assert "/api/v1/db/transactions" in js
+    assert "/api/v1/db/transaction-scores" in js
     assert "new WebSocket" in js
+
+
+def test_rdbms_paginated_table_pages_exist_and_have_pagination() -> None:
+    """Verify users.html, transactions.html, and scores.html exist and provide paginated table views."""
+    static_dir = get_static_dir()
+    users_html = (static_dir / "users.html").read_text(encoding="utf-8")
+    tx_html = (static_dir / "transactions.html").read_text(encoding="utf-8")
+    scores_html = (static_dir / "scores.html").read_text(encoding="utf-8")
+
+    # Verify navigation links across all 5 pages
+    for page_html in (users_html, tx_html, scores_html):
+        assert 'href="index.html"' in page_html
+        assert 'href="queue.html"' in page_html
+        assert 'href="users.html"' in page_html
+        assert 'href="transactions.html"' in page_html
+        assert 'href="scores.html"' in page_html
+        assert 'class="pagination-bar"' in page_html
+        assert 'class="table-wrapper"' in page_html
+
+    assert 'id="users-rdbms-table"' in users_html
+    assert 'id="users-prev-btn"' in users_html
+    assert 'id="users-next-btn"' in users_html
+
+    assert 'id="transactions-rdbms-table"' in tx_html
+    assert 'id="tx-prev-btn"' in tx_html
+    assert 'id="tx-next-btn"' in tx_html
+
+    assert 'id="scores-rdbms-table"' in scores_html
+    assert 'id="scores-prev-btn"' in scores_html
+    assert 'id="scores-next-btn"' in scores_html

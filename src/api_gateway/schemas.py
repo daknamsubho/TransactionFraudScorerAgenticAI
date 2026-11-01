@@ -402,3 +402,193 @@ def to_domain_transaction(req: TransactionIngestRequest) -> Transaction:
         device_id=req.device_id,
         ip_address=req.ip,
     )
+
+
+# =============================================================================
+# RDBMS Database CRUD & Paginated Response Schemas (PRD-006)
+# =============================================================================
+
+
+class UserProfileRecord(BaseModel):
+    """UserProfile record from the user_profiles RDBMS table."""
+
+    username: str
+    created_date: str
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str = "US"
+    postal_code: str | None = None
+    updated_at: str | None = None
+
+
+class UserProfileCreateRequest(BaseModel):
+    """Payload to create or upsert a UserProfile record."""
+
+    username: str = Field(..., min_length=1, max_length=128)
+    created_date: str | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str = Field(default="US", min_length=2, max_length=3)
+    postal_code: str | None = None
+
+
+class UserProfileUpdateRequest(BaseModel):
+    """Payload to update an existing UserProfile record."""
+
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
+    country: str = Field(default="US", min_length=2, max_length=3)
+    postal_code: str | None = None
+
+
+class PaginatedUserProfilesResponse(BaseModel):
+    """Paginated response for GET /api/v1/db/user-profiles."""
+
+    items: list[UserProfileRecord]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class TransactionRecord(BaseModel):
+    """Transaction record from the transactions RDBMS table."""
+
+    transaction_id: str
+    username: str
+    transaction_type: str
+    amount: float
+    currency: str
+    timestamp: str
+    ip_address: str | None = None
+    device_id: str | None = None
+    latitude: float
+    longitude: float
+    city: str | None = None
+    state: str | None = None
+    country: str = "US"
+    postal_code: str | None = None
+    merchant_id: str | None = None
+    merchant_name: str | None = None
+    mcc: str | None = None
+    merchant_country: str | None = None
+    payment_method_type: str | None = None
+    card_or_account_last_four: str | None = None
+    is_card_present: bool = False
+    payment_details: dict[str, Any] = Field(default_factory=dict)
+    status: str = "REVIEW"
+    created_at: str
+    updated_at: str
+
+
+class TransactionCreateRequest(BaseModel):
+    """Payload to create a Transaction record in the transactions RDBMS table."""
+
+    transaction_id: str | None = None
+    username: str = Field(..., min_length=1, max_length=128)
+    transaction_type: Literal["CARD", "ACH"] = "CARD"
+    amount: float = Field(..., gt=0.0)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    timestamp: str | None = None
+    ip_address: str | None = None
+    device_id: str | None = None
+    latitude: float = Field(..., ge=-90.0, le=90.0)
+    longitude: float = Field(..., ge=-180.0, le=180.0)
+    city: str | None = None
+    state: str | None = None
+    country: str = Field(default="US", min_length=2, max_length=3)
+    postal_code: str | None = None
+    merchant_id: str | None = None
+    merchant_name: str | None = None
+    mcc: str | None = None
+    merchant_country: str = "US"
+    payment_method_type: str | None = None
+    card_or_account_last_four: str | None = None
+    is_card_present: bool = False
+    payment_details: dict[str, Any] = Field(default_factory=dict)
+    status: str = "REVIEW"
+
+
+class TransactionUpdateRequest(BaseModel):
+    """Payload to update an existing Transaction record."""
+
+    amount: float | None = Field(default=None, gt=0.0)
+    city: str | None = None
+    state: str | None = None
+    country: str | None = None
+    merchant_name: str | None = None
+    mcc: str | None = None
+    status: str | None = None
+
+
+class PaginatedTransactionsResponse(BaseModel):
+    """Paginated response for GET /api/v1/db/transactions."""
+
+    items: list[TransactionRecord]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class TransactionScoreRecord(BaseModel):
+    """TransactionScore record from the transaction_scores RDBMS table."""
+
+    assessment_id: str
+    transaction_id: str
+    score: float
+    approval_status: str
+    decision_accepted: bool | None = None
+    decision_reason: str | None = None
+    reasoning_summary: str
+    risk_factors: list[dict[str, Any]] = Field(default_factory=list)
+    tools_invoked: list[str] = Field(default_factory=list)
+    evaluated_at: str
+    decided_at: str | None = None
+
+
+class TransactionScoreCreateRequest(BaseModel):
+    """Payload to create a TransactionScore record in the transaction_scores RDBMS table."""
+
+    assessment_id: str | None = None
+    transaction_id: str = Field(..., min_length=1)
+    score: float = Field(..., ge=0.0, le=100.0)
+    approval_status: str = "REVIEW"
+    decision_accepted: bool | None = None
+    decision_reason: str | None = None
+    reasoning_summary: str = Field(..., min_length=1)
+    risk_factors: list[dict[str, Any]] = Field(default_factory=list)
+    tools_invoked: list[str] = Field(default_factory=list)
+
+
+class TransactionScoreUpdateRequest(BaseModel):
+    """Payload to update a TransactionScore record in the transaction_scores RDBMS table."""
+
+    score: float = Field(..., ge=0.0, le=100.0)
+    approval_status: str = "REVIEW"
+    decision_accepted: bool | None = None
+    decision_reason: str | None = None
+    reasoning_summary: str = Field(..., min_length=1)
+    risk_factors: list[dict[str, Any]] = Field(default_factory=list)
+    tools_invoked: list[str] = Field(default_factory=list)
+
+
+class PaginatedTransactionScoresResponse(BaseModel):
+    """Paginated response for GET /api/v1/db/transaction-scores."""
+
+    items: list[TransactionScoreRecord]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class DeleteRecordResponse(BaseModel):
+    """Response payload for DELETE RDBMS endpoints."""
+
+    deleted: bool
+    id: str
+    message: str

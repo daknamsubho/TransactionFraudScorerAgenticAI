@@ -1,5 +1,6 @@
 """Unit tests for the SQLite RDBMS persistence system (src/sqllite)."""
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fraud_scorer.mcp.tools.lookup_account_history import lookup_account_history
@@ -9,12 +10,14 @@ from sqllite import (
     delete_transaction,
     delete_transaction_score,
     delete_user_profile,
+    generate_seed_datasets,
     get_connection,
     init_db,
     insert_transaction,
     insert_transaction_score,
     insert_user_profile,
     install_and_setup_sqlite,
+    seed_database,
     select_all_user_profiles,
     select_transaction,
     select_transaction_score,
@@ -229,3 +232,74 @@ def test_dynamic_account_history_calculation_in_mcp_tool(tmp_path: Path) -> None
     assert tool_result["prior_disputes"] == 0
     assert tool_result["trust_tier"] == "vip"
     assert tool_result["account_risk_score"] == 5.0
+
+
+def test_generate_and_seed_database_cohorts(tmp_path: Path) -> None:
+    """Verify PRD-007 seed cohorts and docs/dataset generation + SQLite bulk seeding."""
+    ref_dt = datetime(2026, 10, 31, 18, 0, 0, tzinfo=UTC)
+    datasets = generate_seed_datasets(seed=42, reference_time=ref_dt)
+
+    profiles = datasets["user_profiles"]
+    txs = datasets["transactions"]
+    scores = datasets["transaction_scores"]
+
+    assert len(profiles) == 40
+    assert len(txs) == len(scores)
+
+    good_profiles = [p for p in profiles if p["username"].startswith("good_persona_")]
+    bad_profiles = [p for p in profiles if p["username"].startswith("bad_persona_")]
+    assert len(good_profiles) == 30
+    assert len(bad_profiles) == 10
+
+    # 30 good personas created in last 1 year (<= 365 days)
+    for gp in good_profiles:
+        c_dt = datetime.fromisoformat(gp["created_date"])
+        age_days = (ref_dt - c_dt).days
+        assert 0 < age_days <= 365
+
+    # 10 bad personas created in last 5 months (<= 155 days)
+    for bp in bad_profiles:
+        c_dt = datetime.fromisoformat(bp["created_date"])
+        age_days = (ref_dt - c_dt).days
+        assert 0 < age_days <= 155
+
+    # Count transactions per user
+    tx_by_user: dict[str, list[dict[str, object]]] = {}
+    for tx in txs:
+        tx_by_user.setdefault(str(tx["username"]), []).append(tx)
+
+    # 20 good personas have 10-30 good transactions each week for 30 weeks (300..900 total)
+    for idx in range(1, 21):
+        uname = f"good_persona_{idx:02d}"
+        user_txs = tx_by_user.get(uname, [])
+        assert 300 <= len(user_txs) <= 900
+
+    # Remaining 10 good personas have 0 transactions
+    for idx in range(21, 31):
+        uname = f"good_persona_{idx:02d}"
+        assert len(tx_by_user.get(uname, [])) == 0
+
+    # 5 bad personas have 2-5 good transactions in last 2 weeks
+    for idx in range(1, 6):
+        uname = f"bad_persona_{idx:02d}"
+        user_txs = tx_by_user.get(uname, [])
+        assert 2 <= len(user_txs) <= 5
+        for tx in user_txs:
+            tx_dt = datetime.fromisoformat(str(tx["timestamp"]))
+            assert (ref_dt - tx_dt).days <= 14
+
+    # Remaining 5 bad personas have 0 transactions
+    for idx in range(6, 11):
+        uname = f"bad_persona_{idx:02d}"
+        assert len(tx_by_user.get(uname, [])) == 0
+
+    # Seed into a temporary SQLite DB and dataset folder
+    dataset_dir = tmp_path / "dataset"
+    db_file = tmp_path / "seeded.db"
+    summary = seed_database(db_path=db_file, dataset_dir=dataset_dir, regenerate=True)
+    assert summary["user_profiles_seeded"] == 40
+    assert summary["transactions_seeded"] == len(txs)
+    assert summary["transaction_scores_seeded"] == len(scores)
+    assert (dataset_dir / "user_profiles.json").is_file()
+    assert (dataset_dir / "transactions.json").is_file()
+    assert (dataset_dir / "transaction_scores.json").is_file()

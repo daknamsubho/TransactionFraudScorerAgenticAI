@@ -181,6 +181,41 @@ body {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+  /* Containment boundary per modern-web-guidance (interactions-in-complex-layouts) */
+  content-visibility: auto;
+  contain-intrinsic-size: auto 300px auto 500px;
+}
+
+@supports not (content-visibility: auto) {
+  .panel {
+    contain: layout style paint;
+  }
+}
+
+.pagination-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+}
+
+.pagination-size {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.pagination-info {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.pagination-controls {
+  display: flex;
+  gap: 0.4rem;
 }
 
 .panel-header {
@@ -482,6 +517,36 @@ tbody tr:hover td {
     --label-6: "Actions";
   }
 
+  table.rdbms-users-table {
+    --label-2: "Created Date";
+    --label-3: "Address";
+    --label-4: "City";
+    --label-5: "State";
+    --label-6: "Country";
+    --label-7: "Postal Code";
+    --label-8: "Actions";
+  }
+
+  table.rdbms-transactions-table {
+    --label-2: "Username";
+    --label-3: "Type";
+    --label-4: "Amount";
+    --label-5: "Merchant";
+    --label-6: "Location";
+    --label-7: "Status";
+    --label-8: "Actions";
+  }
+
+  table.rdbms-scores-table {
+    --label-2: "Assessment ID";
+    --label-3: "Score";
+    --label-4: "Approval Status";
+    --label-5: "Decision Accepted";
+    --label-6: "Decision Reason";
+    --label-7: "Evaluated At";
+    --label-8: "Actions";
+  }
+
   td:nth-child(2)::before {
     content: var(--label-2) ": ";
     font-weight: 600;
@@ -500,6 +565,14 @@ tbody tr:hover td {
   }
   td:nth-child(6)::before {
     content: var(--label-6) ": ";
+    font-weight: 600;
+  }
+  td:nth-child(7)::before {
+    content: var(--label-7) ": ";
+    font-weight: 600;
+  }
+  td:nth-child(8)::before {
+    content: var(--label-8) ": ";
     font-weight: 600;
   }
 }
