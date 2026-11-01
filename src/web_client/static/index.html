@@ -69,6 +69,52 @@
         </div>
       </div>
 
+      <div class="test-dataset-actions" role="group" aria-label="Manual Test Transaction Loaders">
+        <button type="button" id="btn-import-random-test" class="btn btn-sm btn-secondary">
+          Import Random transaction from test_transaction_dataset
+        </button>
+        <button type="button" id="btn-generate-good-tx" class="btn btn-sm btn-success">
+          Generate Good Transaction
+        </button>
+        <button type="button" id="btn-generate-fraud-tx" class="btn btn-sm btn-danger">
+          Generate Fraud Transaction
+        </button>
+      </div>
+
+      <section id="test-transaction-details-section" class="test-details-card" aria-labelledby="test-details-heading" aria-live="polite">
+        <div class="test-details-header">
+          <h3 id="test-details-heading">Test Transaction Details</h3>
+          <span id="test-detail-profile" class="badge badge-neutral">None Loaded</span>
+        </div>
+        <dl class="test-details-grid">
+          <div class="test-detail-item">
+            <dt>Scenario ID</dt>
+            <dd id="test-detail-scenario-id">-</dd>
+          </div>
+          <div class="test-detail-item">
+            <dt>Test Source</dt>
+            <dd id="test-detail-source">-</dd>
+          </div>
+          <div class="test-detail-item">
+            <dt>Persona Group</dt>
+            <dd id="test-detail-persona">-</dd>
+          </div>
+          <div class="test-detail-item">
+            <dt>Username</dt>
+            <dd id="test-detail-username">-</dd>
+          </div>
+        </dl>
+        <p id="test-detail-description" class="test-detail-description">
+          Click one of the test buttons above to import a random transaction from test_transactions_dataset.json
+          or generate a new Good / Fraud transaction. Test data is loaded by the WebClient only — the API Gateway
+          only sees the standard score request when you submit.
+        </p>
+        <details class="test-detail-json-details">
+          <summary>View Loaded Test Scenario JSON</summary>
+          <pre id="test-detail-json" class="code-output">No test transaction loaded yet.</pre>
+        </details>
+      </section>
+
       <form id="transaction-form">
         <fieldset class="fieldset-group">
           <legend>User &amp; Session Context</legend>
@@ -84,6 +130,9 @@
                 minlength="1"
                 maxlength="128"
                 value="jdoe_99"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
                 aria-describedby="tx-username-hint"
                 aria-errormessage="tx-username-error"
               >
@@ -119,6 +168,9 @@
                 name="ip"
                 required
                 value="198.51.100.42"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
                 aria-describedby="tx-ip-hint"
                 aria-errormessage="tx-ip-error"
               >
@@ -135,6 +187,9 @@
                 id="tx-device-id"
                 name="device_id"
                 value="dev_macbook_pro_91a"
+                autocorrect="off"
+                autocapitalize="off"
+                spellcheck="false"
                 aria-describedby="tx-device-hint"
               >
             </div>
@@ -273,7 +328,7 @@
           <div class="form-row">
             <div class="field">
               <label for="merch-id">Merchant ID</label>
-              <input type="text" id="merch-id" name="merchant_id" required value="merch_88412">
+              <input type="text" id="merch-id" name="merchant_id" required value="merch_88412" autocorrect="off" autocapitalize="off" spellcheck="false">
             </div>
             <div class="field">
               <label for="merch-name">Merchant Name</label>

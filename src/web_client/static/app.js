@@ -387,6 +387,329 @@
     document.getElementById("ach-bank-name").value = "Chase Bank";
   }
 
+  // 5b. Manual Test Transaction Loaders (PRD-012, Page 1: index.html)
+  //     Test data is loaded/generated entirely inside the WebClient. The API Gateway stays headless
+  //     and never knows about test datasets — it only receives the standard score request on submit.
+  const TEST_DATASET_URL = "dataset/test_transactions_dataset.json";
+
+  // Mirrors _LOCATIONS / _GOOD_MERCHANTS / _BAD_MERCHANTS / _ANOMALY_LOCATIONS in src/sqllite/seed.py
+  // so generated transactions line up with seeded persona histories.
+  const HOME_LOCATIONS = [
+    { city: "San Francisco", state: "CA", postal_code: "94103", latitude: 37.7749, longitude: -122.4194 },
+    { city: "New York", state: "NY", postal_code: "10001", latitude: 40.7128, longitude: -74.006 },
+    { city: "Austin", state: "TX", postal_code: "78701", latitude: 30.2672, longitude: -97.7431 },
+    { city: "Seattle", state: "WA", postal_code: "98101", latitude: 47.6062, longitude: -122.3321 },
+    { city: "Chicago", state: "IL", postal_code: "60601", latitude: 41.8781, longitude: -87.6298 },
+    { city: "Denver", state: "CO", postal_code: "80202", latitude: 39.7392, longitude: -104.9903 },
+    { city: "Boston", state: "MA", postal_code: "02108", latitude: 42.3601, longitude: -71.0589 },
+    { city: "Miami", state: "FL", postal_code: "33131", latitude: 25.7617, longitude: -80.1918 },
+    { city: "Atlanta", state: "GA", postal_code: "30303", latitude: 33.749, longitude: -84.388 },
+    { city: "Phoenix", state: "AZ", postal_code: "85004", latitude: 33.4484, longitude: -112.074 },
+  ];
+
+  const GOOD_MERCHANTS = [
+    { merchant_id: "merch_grocery_01", name: "Whole Foods Market", mcc: "5411" },
+    { merchant_id: "merch_cafe_02", name: "Blue Bottle Coffee", mcc: "5814" },
+    { merchant_id: "merch_fuel_03", name: "Shell Service Station", mcc: "5541" },
+    { merchant_id: "merch_pharmacy_04", name: "Walgreens Pharmacy", mcc: "5912" },
+    { merchant_id: "merch_retail_05", name: "Target Store", mcc: "5311" },
+    { merchant_id: "merch_utility_06", name: "Pacific Gas & Electric", mcc: "4900" },
+    { merchant_id: "merch_dining_07", name: "Sweetgreen Kitchen", mcc: "5812" },
+    { merchant_id: "merch_books_08", name: "Powell's City of Books", mcc: "5942" },
+  ];
+
+  const FRAUD_MERCHANTS = [
+    { merchant_id: "merch_casino_91", name: "Royal Flush Online Casino", mcc: "7995" },
+    { merchant_id: "merch_crypto_92", name: "Instant Crypto OTC Exchange", mcc: "6051" },
+    { merchant_id: "merch_wire_93", name: "Global Express Wire Transfer", mcc: "4829" },
+    { merchant_id: "merch_tele_94", name: "Direct Inbound TeleServices", mcc: "5967" },
+    { merchant_id: "merch_pawn_95", name: "Metro Gold & Bullion Exchange", mcc: "5933" },
+  ];
+
+  const FRAUD_LOCATIONS = [
+    { city: "Tokyo", state: "TK", country: "JP", postal_code: "100-0001", latitude: 35.6762, longitude: 139.6503 },
+    { city: "London", state: "LND", country: "GB", postal_code: "EC1A", latitude: 51.5074, longitude: -0.1278 },
+    { city: "Lagos", state: "LA", country: "NG", postal_code: "100001", latitude: 6.5244, longitude: 3.3792 },
+    { city: "Frankfurt", state: "HE", country: "DE", postal_code: "60311", latitude: 50.1109, longitude: 8.6821 },
+    { city: "Sydney", state: "NSW", country: "AU", postal_code: "2000", latitude: -33.8688, longitude: 151.2093 },
+    { city: "Bucharest", state: "B", country: "RO", postal_code: "010011", latitude: 44.4268, longitude: 26.1025 },
+    { city: "Macau", state: "MO", country: "MO", postal_code: "999078", latitude: 22.1987, longitude: 113.5439 },
+  ];
+
+  let cachedTestDataset = null;
+  let lastTestDatasetIndex = -1;
+
+  const randInt = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+  const pick = (items) => items[randInt(0, items.length - 1)];
+  const randDigits = (count) => Array.from({ length: count }, () => randInt(0, 9)).join("");
+  const randAmount = (min, max) => Math.round((Math.random() * (max - min) + min) * 100) / 100;
+  const pad2 = (n) => String(n).padStart(2, "0");
+
+  async function loadTestDatasetFromWebClient() {
+    if (cachedTestDataset) return cachedTestDataset;
+    // Relative URL => served by the WebClient's own server (src/web_client/server.py), never the API Gateway.
+    const response = await fetch(TEST_DATASET_URL, { cache: "no-store" });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status} loading ${TEST_DATASET_URL}`);
+    }
+    const data = await response.json();
+    const items = Array.isArray(data) ? data : data.transactions || [];
+    if (items.length === 0) {
+      throw new Error("test_transactions_dataset.json contains no transactions");
+    }
+    cachedTestDataset = items;
+    return cachedTestDataset;
+  }
+
+  function setFieldValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (el.type === "checkbox") {
+      el.checked = Boolean(value);
+    } else {
+      el.value = value === null || value === undefined ? "" : String(value);
+    }
+  }
+
+  function clearFormValidationState() {
+    if (!txForm) return;
+    for (const control of txForm.elements) {
+      control.classList.remove("user-invalid-fallback", "user-valid-fallback");
+      control.removeAttribute("aria-invalid");
+    }
+  }
+
+  function populateFormFromTransaction(entry) {
+    if (!txTypeSelect || !entry) return;
+    const loc = entry.location || {};
+    const details = entry.transaction_details || {};
+    const merchant = details.merchant || {};
+
+    setFieldValue("tx-username", entry.username);
+    setFieldValue("tx-datetime", entry.datetime || new Date().toISOString());
+    setFieldValue("tx-ip", entry.ip);
+    setFieldValue("tx-device-id", entry.device_id);
+    setFieldValue("loc-latitude", loc.latitude);
+    setFieldValue("loc-longitude", loc.longitude);
+    setFieldValue("loc-city", loc.city);
+    setFieldValue("loc-state", loc.state);
+    setFieldValue("loc-country", loc.country || "US");
+    setFieldValue("loc-postal", loc.postal_code);
+
+    txTypeSelect.value = details.transaction_type === "ACH" ? "ACH" : "CARD";
+    syncPaymentRailVisibility();
+
+    setFieldValue("tx-amount", typeof details.amount === "number" ? details.amount.toFixed(2) : details.amount);
+    setFieldValue("tx-currency", details.currency || "USD");
+    setFieldValue("merch-id", merchant.merchant_id);
+    setFieldValue("merch-name", merchant.name);
+    setFieldValue("merch-mcc", merchant.mcc);
+
+    if (details.card_details) {
+      const card = details.card_details;
+      setFieldValue("card-type", card.card_type || "CREDIT");
+      setFieldValue("card-network", card.card_network || "VISA");
+      setFieldValue("card-last-four", card.card_last_four);
+      setFieldValue("card-present", card.is_card_present);
+      setFieldValue("card-cvv", card.cvv_verified);
+      setFieldValue("card-avs", card.avs_result);
+    }
+    if (details.ach_details) {
+      const ach = details.ach_details;
+      setFieldValue("ach-routing", ach.routing_number);
+      setFieldValue("ach-last-four", ach.account_last_four);
+      setFieldValue("ach-account-type", ach.account_type || "CHECKING");
+      setFieldValue("ach-sec-code", ach.sec_code || "WEB");
+      setFieldValue("ach-direction", ach.direction || "DEBIT");
+      setFieldValue("ach-bank-name", ach.bank_name);
+    }
+
+    clearFormValidationState();
+  }
+
+  function renderTestDetails(entry, sourceLabel) {
+    const profile = (entry.transaction_profile || "").toLowerCase();
+    const isGood = profile === "good";
+    const profileBadge = document.getElementById("test-detail-profile");
+    if (profileBadge) {
+      profileBadge.textContent = isGood ? "Expected: GOOD" : "Expected: FRAUD";
+      profileBadge.className = `badge ${isGood ? "badge-success" : "badge-danger"}`;
+    }
+    setText("test-detail-scenario-id", entry.scenario_id || "-");
+    setText("test-detail-source", sourceLabel);
+    setText("test-detail-persona", entry.persona_group || "-");
+    setText("test-detail-username", entry.username || "-");
+    setText("test-detail-description", entry.description || "-");
+    setText("test-detail-json", JSON.stringify(entry, null, 2));
+  }
+
+  function setText(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text;
+  }
+
+  async function importRandomTestTransaction() {
+    try {
+      const items = await loadTestDatasetFromWebClient();
+      let idx = randInt(0, items.length - 1);
+      if (items.length > 1 && idx === lastTestDatasetIndex) {
+        idx = (idx + 1) % items.length;
+      }
+      lastTestDatasetIndex = idx;
+      // Deep clone and refresh the timestamp so velocity/geo checks evaluate against "now".
+      const entry = JSON.parse(JSON.stringify(items[idx]));
+      entry.datetime = new Date().toISOString();
+      populateFormFromTransaction(entry);
+      renderTestDetails(entry, `test_transactions_dataset.json (#${idx + 1} of ${items.length})`);
+    } catch (err) {
+      const profileBadge = document.getElementById("test-detail-profile");
+      if (profileBadge) {
+        profileBadge.textContent = "Load Error";
+        profileBadge.className = "badge badge-warning";
+      }
+      setText(
+        "test-detail-description",
+        `Could not load test_transactions_dataset.json from the WebClient (${err.message}). ` +
+          "Start the WebClient with `uv run fraud-web-client` so /dataset/test_transactions_dataset.json is served."
+      );
+    }
+  }
+
+  function generateGoodTransaction() {
+    const useNewPersona = Math.random() < 0.25;
+    let username;
+    let home;
+    let personaGroup;
+    if (useNewPersona) {
+      username = `new_user_${randDigits(5)}`;
+      home = pick(HOME_LOCATIONS);
+      personaGroup = "generated_new_persona";
+    } else {
+      // good_persona_01..20 have weekly history; home city follows seed.py's (idx - 1) % 10 rule.
+      const idx = randInt(1, 20);
+      username = `good_persona_${pad2(idx)}`;
+      home = HOME_LOCATIONS[(idx - 1) % HOME_LOCATIONS.length];
+      personaGroup = "existing_persona";
+    }
+    const merchant = pick(GOOD_MERCHANTS);
+    const amount = randAmount(12, 145);
+    const isAch = Math.random() < 0.25;
+    const stamp = Date.now().toString(36);
+
+    const details = {
+      transaction_id: `tx_gen_good_${stamp}`,
+      transaction_type: isAch ? "ACH" : "CARD",
+      amount,
+      currency: "USD",
+      merchant: { ...merchant, country: "US" },
+    };
+    if (isAch) {
+      details.ach_details = {
+        routing_number: "021000021",
+        account_last_four: randDigits(4),
+        account_type: "CHECKING",
+        sec_code: pick(["PPD", "WEB"]),
+        direction: "DEBIT",
+        bank_name: "Chase Bank",
+      };
+    } else {
+      details.card_details = {
+        card_type: pick(["CREDIT", "DEBIT"]),
+        card_network: pick(["VISA", "MASTERCARD"]),
+        card_last_four: randDigits(4),
+        is_card_present: true,
+        cvv_verified: true,
+        avs_result: "Y",
+      };
+    }
+
+    const entry = {
+      scenario_id: `generated_good_${stamp}`,
+      persona_group: personaGroup,
+      transaction_profile: "good",
+      description:
+        `Generated low-risk ${details.transaction_type} purchase by '${username}' at ${merchant.name} ` +
+        `(MCC ${merchant.mcc}) in home city ${home.city}, ${home.state} for $${amount.toFixed(2)}.`,
+      username,
+      datetime: new Date().toISOString(),
+      ip: `198.51.100.${randInt(2, 254)}`,
+      device_id: `dev_${username}`,
+      location: {
+        latitude: home.latitude,
+        longitude: home.longitude,
+        city: home.city,
+        state: home.state,
+        country: "US",
+        postal_code: home.postal_code,
+      },
+      transaction_details: details,
+    };
+    populateFormFromTransaction(entry);
+    renderTestDetails(entry, "Generated Good Transaction (client-side)");
+  }
+
+  function generateFraudTransaction() {
+    const takeover = Math.random() < 0.5;
+    const username = takeover ? `good_persona_${pad2(randInt(1, 20))}` : `bad_persona_${pad2(randInt(1, 10))}`;
+    const merchant = pick(FRAUD_MERCHANTS);
+    const loc = pick(FRAUD_LOCATIONS);
+    const amount = randAmount(3200, 9850);
+    const isAch = Math.random() < 0.3;
+    const stamp = Date.now().toString(36);
+
+    const details = {
+      transaction_id: `tx_gen_fraud_${stamp}`,
+      transaction_type: isAch ? "ACH" : "CARD",
+      amount,
+      currency: "USD",
+      merchant: { ...merchant, country: loc.country },
+    };
+    if (isAch) {
+      details.ach_details = {
+        routing_number: randDigits(9),
+        account_last_four: randDigits(4),
+        account_type: "CHECKING",
+        sec_code: pick(["TEL", "WEB"]),
+        direction: "DEBIT",
+        bank_name: "Offshore Clearing Bank",
+      };
+    } else {
+      details.card_details = {
+        card_type: pick(["CREDIT", "PREPAID"]),
+        card_network: pick(["VISA", "MASTERCARD", "OTHER"]),
+        card_last_four: randDigits(4),
+        is_card_present: false,
+        cvv_verified: false,
+        avs_result: "N",
+      };
+    }
+
+    const entry = {
+      scenario_id: `generated_fraud_${stamp}`,
+      persona_group: takeover ? "existing_persona_account_takeover" : "existing_bad_persona",
+      transaction_profile: "bad",
+      description:
+        `Generated fraudulent ${details.transaction_type} transaction for '${username}' from ${loc.city}, ` +
+        `${loc.country} (impossible travel / unrecognized device) at high-risk merchant ${merchant.name} ` +
+        `(MCC ${merchant.mcc}) for $${amount.toFixed(2)}.`,
+      username,
+      datetime: new Date().toISOString(),
+      ip: `203.0.113.${randInt(2, 254)}`,
+      device_id: `dev_unrecognized_${randDigits(6)}`,
+      location: {
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        city: loc.city,
+        state: loc.state,
+        country: loc.country,
+        postal_code: loc.postal_code,
+      },
+      transaction_details: details,
+    };
+    populateFormFromTransaction(entry);
+    renderTestDetails(entry, "Generated Fraud Transaction (client-side)");
+  }
+
   // 6. Build & Submit REST Transaction Score Request (Page 1: index.html)
   function buildTransactionPayload() {
     const txType = txTypeSelect.value;
@@ -1121,6 +1444,18 @@
     }
     if (btnPresetAch) {
       btnPresetAch.addEventListener("click", loadAchPreset);
+    }
+    const btnImportRandomTest = document.getElementById("btn-import-random-test");
+    const btnGenerateGoodTx = document.getElementById("btn-generate-good-tx");
+    const btnGenerateFraudTx = document.getElementById("btn-generate-fraud-tx");
+    if (btnImportRandomTest) {
+      btnImportRandomTest.addEventListener("click", importRandomTestTransaction);
+    }
+    if (btnGenerateGoodTx) {
+      btnGenerateGoodTx.addEventListener("click", generateGoodTransaction);
+    }
+    if (btnGenerateFraudTx) {
+      btnGenerateFraudTx.addEventListener("click", generateFraudTransaction);
     }
     if (txForm) {
       txForm.addEventListener("submit", handleTransactionSubmit);

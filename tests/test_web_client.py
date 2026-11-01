@@ -94,3 +94,74 @@ def test_rdbms_paginated_table_pages_exist_and_have_pagination() -> None:
     assert 'id="scores-rdbms-table"' in scores_html
     assert 'id="scores-prev-btn"' in scores_html
     assert 'id="scores-next-btn"' in scores_html
+
+
+def test_index_html_has_manual_test_buttons_and_details_section() -> None:
+    """PRD-012: index.html exposes 3 test loader buttons and a Test Transaction Details section."""
+    index_html = (get_static_dir() / "index.html").read_text(encoding="utf-8")
+
+    assert '<button type="button" id="btn-import-random-test"' in index_html
+    assert "Import Random transaction from test_transaction_dataset" in index_html
+    assert '<button type="button" id="btn-generate-good-tx"' in index_html
+    assert "Generate Good Transaction" in index_html
+    assert '<button type="button" id="btn-generate-fraud-tx"' in index_html
+    assert "Generate Fraud Transaction" in index_html
+
+    for element_id in (
+        "test-transaction-details-section",
+        "test-detail-scenario-id",
+        "test-detail-source",
+        "test-detail-persona",
+        "test-detail-username",
+        "test-detail-profile",
+        "test-detail-description",
+        "test-detail-json",
+    ):
+        assert f'id="{element_id}"' in index_html
+
+    # index.html must remain free of decisioning UI (that lives on queue.html)
+    assert 'id="decision-form"' not in index_html
+
+
+def test_app_js_loads_test_dataset_from_web_client_only() -> None:
+    """PRD-012: app.js loads the dataset from the WebClient itself; the API Gateway stays headless."""
+    js = (get_static_dir() / "app.js").read_text(encoding="utf-8")
+
+    assert 'const TEST_DATASET_URL = "dataset/test_transactions_dataset.json"' in js
+    assert "function importRandomTestTransaction" in js
+    assert "function generateGoodTransaction" in js
+    assert "function generateFraudTransaction" in js
+    assert "function populateFormFromTransaction" in js
+    assert "function renderTestDetails" in js
+    assert 'addEventListener("click", importRandomTestTransaction)' in js
+    assert 'addEventListener("click", generateGoodTransaction)' in js
+    assert 'addEventListener("click", generateFraudTransaction)' in js
+    # No gateway endpoint for test data
+    assert "/api/v1/transactions/test-dataset" not in js
+
+
+def test_web_client_server_serves_local_test_dataset() -> None:
+    """PRD-012: WebClientRequestHandler maps /dataset/test_transactions_dataset.json to docs/dataset."""
+    import json
+
+    from web_client import WebClientRequestHandler, get_test_dataset_path
+
+    dataset_path = get_test_dataset_path()
+    assert dataset_path.is_file()
+    items = json.loads(dataset_path.read_text(encoding="utf-8"))
+    assert len(items) == 25
+    assert {item["transaction_profile"] for item in items} == {"good", "bad"}
+
+    handler = WebClientRequestHandler.__new__(WebClientRequestHandler)
+    handler.directory = str(get_static_dir())
+    assert handler.translate_path("/dataset/test_transactions_dataset.json") == str(dataset_path)
+    assert handler.translate_path("/dataset/test_transactions_dataset.json?x=1") == str(dataset_path)
+    assert handler.translate_path("/index.html") == str(get_static_dir() / "index.html")
+
+
+def test_api_gateway_has_no_test_dataset_route() -> None:
+    """PRD-012: The headless API Gateway must not expose any test dataset endpoint."""
+    from api_gateway.app import app
+
+    paths = {getattr(route, "path", "") for route in app.routes}
+    assert not any("test-dataset" in path for path in paths)

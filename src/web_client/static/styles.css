@@ -609,3 +609,70 @@ tbody tr:hover td {
   max-height: 240px;
   margin: 0;
 }
+
+
+/* PRD-012: Manual Test Transaction Loaders & Test Details (index.html) */
+.test-dataset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  background: #f1f5f9;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.test-details-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  padding: 0.85rem 1rem;
+  background: #fbfdff;
+}
+
+.test-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.6rem;
+}
+
+.test-details-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.test-details-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.6rem 1rem;
+  margin: 0 0 0.6rem;
+}
+
+.test-detail-item dt {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.test-detail-item dd {
+  margin: 0.1rem 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.test-detail-description {
+  margin: 0 0 0.6rem;
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.test-detail-json-details summary {
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+}

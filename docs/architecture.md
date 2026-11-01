@@ -55,6 +55,7 @@ flowchart TB
 
 ### A. Ingress & Client Layer
 - **Web Client**: External consumer interface (e.g., checkout portal, mobile banking app, e-commerce payment gateway) submitting transaction scoring requests.
+  - **Manual Test Transaction Loaders (`src/web_client/`, PRD-012)**: The Submit page (`index.html`) offers *Import Random transaction from test_transaction_dataset*, *Generate Good Transaction*, and *Generate Fraud Transaction* buttons plus a *Test Transaction Details* section. The dataset (`docs/dataset/test_transactions_dataset.json`) is served by the WebClient's own server (`/dataset/test_transactions_dataset.json`) and good/fraud transactions are synthesized client-side in `app.js`. The API Gateway and everything behind it stay **headless** — they have no knowledge of test datasets and only receive the standard `POST /api/v1/transactions/score` request.
 - **API Gateway**: Edge ingress point responsible for:
   - Client authentication and API key validation.
   - Rate limiting and request throttling.
