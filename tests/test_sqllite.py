@@ -303,3 +303,46 @@ def test_generate_and_seed_database_cohorts(tmp_path: Path) -> None:
     assert (dataset_dir / "user_profiles.json").is_file()
     assert (dataset_dir / "transactions.json").is_file()
     assert (dataset_dir / "transaction_scores.json").is_file()
+    assert (dataset_dir / "test_transactions_dataset.json").is_file()
+
+
+def test_test_transactions_dataset_structure_and_validation() -> None:
+    """Verify docs/dataset/test_transactions_dataset.json has 20 existing-persona mix + 5 new personas (PRD-011)."""
+    import json
+
+    from api_gateway.schemas import TransactionIngestRequest, to_domain_transaction
+    from sqllite import DEFAULT_DATASET_DIR, generate_seed_datasets
+
+    test_file = DEFAULT_DATASET_DIR / "test_transactions_dataset.json"
+    assert test_file.is_file()
+
+    items = json.loads(test_file.read_text(encoding="utf-8"))
+    assert len(items) == 25
+
+    seed_usernames = {p["username"] for p in generate_seed_datasets()["user_profiles"]}
+
+    existing_persona_txs = [tx for tx in items if tx["persona_group"] == "existing_persona"]
+    new_persona_txs = [tx for tx in items if tx["persona_group"] == "new_persona"]
+
+    assert len(existing_persona_txs) == 20
+    assert len(new_persona_txs) == 5
+
+    # Verify mix of good and bad among the 20 existing-persona transactions
+    existing_good = [tx for tx in existing_persona_txs if tx["transaction_profile"] == "good"]
+    existing_bad = [tx for tx in existing_persona_txs if tx["transaction_profile"] == "bad"]
+    assert len(existing_good) == 10
+    assert len(existing_bad) == 10
+
+    for tx in existing_persona_txs:
+        assert tx["username"] in seed_usernames
+
+    # Verify the 5 new-persona transactions use completely new personas not in user_profiles
+    for tx in new_persona_txs:
+        assert tx["username"] not in seed_usernames
+
+    # Verify all 25 validate against OpenAPI TransactionIngestRequest and domain Transaction model
+    for tx in items:
+        ingest_req = TransactionIngestRequest.model_validate(tx)
+        domain_tx = to_domain_transaction(ingest_req)
+        assert domain_tx.account_id == tx["username"]
+        assert domain_tx.amount > 0

@@ -120,6 +120,22 @@ _GOOD_MERCHANTS: list[dict[str, str]] = [
     {"merchant_id": "merch_books_08", "name": "Powell's City of Books", "mcc": "5942"},
 ]
 
+_BAD_MERCHANTS: list[dict[str, str]] = [
+    {"merchant_id": "merch_casino_91", "name": "Royal Flush Online Casino", "mcc": "7995", "country": "JP"},
+    {"merchant_id": "merch_crypto_92", "name": "Instant Crypto OTC Exchange", "mcc": "6051", "country": "GB"},
+    {"merchant_id": "merch_wire_93", "name": "Global Express Wire Transfer", "mcc": "4829", "country": "NG"},
+    {"merchant_id": "merch_tele_94", "name": "Direct Inbound TeleServices", "mcc": "5967", "country": "DE"},
+    {"merchant_id": "merch_pawn_95", "name": "Metro Gold & Bullion Exchange", "mcc": "5933", "country": "AU"},
+]
+
+_ANOMALY_LOCATIONS: list[dict[str, Any]] = [
+    {"city": "Tokyo", "state": "TK", "country": "JP", "postal_code": "100-0001", "lat": 35.6762, "lon": 139.6503},
+    {"city": "London", "state": "LND", "country": "GB", "postal_code": "EC1A", "lat": 51.5074, "lon": -0.1278},
+    {"city": "Lagos", "state": "LA", "country": "NG", "postal_code": "100001", "lat": 6.5244, "lon": 3.3792},
+    {"city": "Frankfurt", "state": "HE", "country": "DE", "postal_code": "60311", "lat": 50.1109, "lon": 8.6821},
+    {"city": "Sydney", "state": "NSW", "country": "AU", "postal_code": "2000", "lat": -33.8688, "lon": 151.2093},
+]
+
 
 def generate_seed_datasets(
     seed: int = 42,
@@ -304,6 +320,323 @@ def generate_seed_datasets(
     }
 
 
+def generate_test_transactions_dataset(
+    seed: int = 42,
+    reference_time: datetime | None = None,
+) -> list[dict[str, Any]]:
+    """Generate 25 UI/API test transactions per PRD-011.
+
+    Composition:
+    - 20 transactions from existing personas (mix of 10 good and 10 bad).
+    - 5 transactions from completely new personas (`new_persona_01`..`new_persona_05`).
+    """
+    rng = random.Random(seed + 101)
+    ref_dt = reference_time or datetime(2026, 10, 31, 18, 0, 0, tzinfo=UTC)
+    seed_data = generate_seed_datasets(seed=seed, reference_time=ref_dt)
+
+    # Track latest transaction timestamp per existing persona for realistic velocity/geo tests
+    latest_ts_by_user: dict[str, datetime] = {}
+    for tx in seed_data["transactions"]:
+        uname = str(tx["username"])
+        dt_val = datetime.fromisoformat(str(tx["timestamp"]))
+        if uname not in latest_ts_by_user or dt_val > latest_ts_by_user[uname]:
+            latest_ts_by_user[uname] = dt_val
+
+    test_transactions: list[dict[str, Any]] = []
+
+    # 1. 10 Good Transactions from Existing Personas (test_tx_01 .. test_tx_10)
+    for i in range(1, 11):
+        username = f"good_persona_{i:02d}"
+        loc = _LOCATIONS[(i - 1) % len(_LOCATIONS)]
+        merch = _GOOD_MERCHANTS[(i - 1) % len(_GOOD_MERCHANTS)]
+        is_ach = i in (4, 8)
+        tx_type = "ACH" if is_ach else "CARD"
+        amount = round(24.50 + i * 9.75, 2)
+        base_dt = latest_ts_by_user.get(username, ref_dt)
+        tx_dt = base_dt + timedelta(hours=6 + i)
+        last_four = f"{(hash(username) % 9000 + 1000):04d}"
+
+        tx_details: dict[str, Any] = {
+            "transaction_id": f"tx_test_{i:03d}",
+            "transaction_type": tx_type,
+            "amount": amount,
+            "currency": "USD",
+            "merchant": {
+                "merchant_id": merch["merchant_id"],
+                "name": merch["name"],
+                "mcc": merch["mcc"],
+                "country": "US",
+            },
+        }
+        if is_ach:
+            tx_details["ach_details"] = {
+                "routing_number": "021000021",
+                "account_last_four": last_four,
+                "account_type": "CHECKING",
+                "sec_code": "WEB",
+                "direction": "DEBIT",
+                "bank_name": "Chase Bank",
+            }
+        else:
+            tx_details["card_details"] = {
+                "card_type": "CREDIT",
+                "card_network": "VISA",
+                "card_last_four": last_four,
+                "is_card_present": True,
+                "expiration_month": 8,
+                "expiration_year": 2028,
+                "cvv_verified": True,
+                "avs_result": "Y",
+            }
+
+        test_transactions.append(
+            {
+                "scenario_id": f"test_tx_{i:02d}",
+                "persona_group": "existing_persona",
+                "transaction_profile": "good",
+                "description": (
+                    f"Existing persona '{username}' routine {tx_type} purchase at {merch['name']} "
+                    f"in home city {loc['city']} (${amount:.2f})."
+                ),
+                "username": username,
+                "datetime": tx_dt.isoformat(),
+                "ip": f"198.51.100.{(hash(username) % 240) + 10}",
+                "device_id": f"dev_{username}",
+                "location": {
+                    "latitude": loc["lat"],
+                    "longitude": loc["lon"],
+                    "city": loc["city"],
+                    "state": loc["state"],
+                    "country": "US",
+                    "postal_code": loc["postal_code"],
+                },
+                "transaction_details": tx_details,
+            }
+        )
+
+    # 2. 10 Bad Transactions from Existing Personas (test_tx_11 .. test_tx_20)
+    bad_existing_users = [
+        "bad_persona_01",
+        "bad_persona_02",
+        "bad_persona_03",
+        "bad_persona_04",
+        "bad_persona_05",
+        "good_persona_11",
+        "good_persona_12",
+        "good_persona_13",
+        "good_persona_14",
+        "good_persona_15",
+    ]
+    for idx_offset, username in enumerate(bad_existing_users, start=11):
+        anom_loc = _ANOMALY_LOCATIONS[(idx_offset - 11) % len(_ANOMALY_LOCATIONS)]
+        bad_merch = _BAD_MERCHANTS[(idx_offset - 11) % len(_BAD_MERCHANTS)]
+        is_ach = idx_offset in (13, 17, 20)
+        tx_type = "ACH" if is_ach else "CARD"
+        amount = round(2450.00 + (idx_offset - 10) * 375.00, 2)
+        base_dt = latest_ts_by_user.get(username, ref_dt)
+        # 12 minutes after last known domestic transaction to trigger impossible travel
+        tx_dt = base_dt + timedelta(minutes=12)
+        last_four = f"{(hash(username) % 9000 + 1000):04d}"
+
+        tx_details = {
+            "transaction_id": f"tx_test_{idx_offset:03d}",
+            "transaction_type": tx_type,
+            "amount": amount,
+            "currency": "USD",
+            "merchant": {
+                "merchant_id": bad_merch["merchant_id"],
+                "name": bad_merch["name"],
+                "mcc": bad_merch["mcc"],
+                "country": bad_merch["country"],
+            },
+        }
+        if is_ach:
+            tx_details["ach_details"] = {
+                "routing_number": "021000021",
+                "account_last_four": last_four,
+                "account_type": "CHECKING",
+                "sec_code": "WEB",
+                "direction": "DEBIT",
+                "bank_name": "Offshore Clearing Bank",
+            }
+        else:
+            tx_details["card_details"] = {
+                "card_type": "CREDIT",
+                "card_network": "MASTERCARD",
+                "card_last_four": last_four,
+                "is_card_present": False,
+                "expiration_month": 11,
+                "expiration_year": 2027,
+                "cvv_verified": False,
+                "avs_result": "N",
+            }
+
+        test_transactions.append(
+            {
+                "scenario_id": f"test_tx_{idx_offset:02d}",
+                "persona_group": "existing_persona",
+                "transaction_profile": "bad",
+                "description": (
+                    f"Existing persona '{username}' suspicious {tx_type} transaction in {anom_loc['city']} "
+                    f"at high-risk merchant {bad_merch['name']} (MCC {bad_merch['mcc']}, ${amount:,.2f})."
+                ),
+                "username": username,
+                "datetime": tx_dt.isoformat(),
+                "ip": f"203.0.113.{idx_offset * 3}",
+                "device_id": f"dev_unrecognized_{idx_offset}",
+                "location": {
+                    "latitude": anom_loc["lat"],
+                    "longitude": anom_loc["lon"],
+                    "city": anom_loc["city"],
+                    "state": anom_loc["state"],
+                    "country": anom_loc["country"],
+                    "postal_code": anom_loc["postal_code"],
+                },
+                "transaction_details": tx_details,
+            }
+        )
+
+    # 3. 5 Transactions with Completely New Personas (test_tx_21 .. test_tx_25)
+    new_persona_specs: list[dict[str, Any]] = [
+        {
+            "scenario_id": "test_tx_21",
+            "username": "new_persona_01",
+            "profile": "good",
+            "tx_type": "CARD",
+            "amount": 38.50,
+            "loc": _LOCATIONS[0],
+            "country": "US",
+            "merch": _GOOD_MERCHANTS[0],
+            "card_present": True,
+            "desc": "Completely new persona 'new_persona_01' small in-person grocery CARD purchase ($38.50).",
+        },
+        {
+            "scenario_id": "test_tx_22",
+            "username": "new_persona_02",
+            "profile": "good",
+            "tx_type": "ACH",
+            "amount": 112.00,
+            "loc": _LOCATIONS[2],
+            "country": "US",
+            "merch": _GOOD_MERCHANTS[5],
+            "card_present": False,
+            "desc": "Completely new persona 'new_persona_02' domestic utility ACH payment ($112.00).",
+        },
+        {
+            "scenario_id": "test_tx_23",
+            "username": "new_persona_03",
+            "profile": "bad",
+            "tx_type": "CARD",
+            "amount": 1650.00,
+            "loc": _LOCATIONS[1],
+            "country": "US",
+            "merch": {"merchant_id": "merch_electronics_88", "name": "MegaTech Electronics", "mcc": "5732"},
+            "card_present": False,
+            "desc": "Completely new persona 'new_persona_03' high-value online electronics CARD purchase ($1,650.00).",
+        },
+        {
+            "scenario_id": "test_tx_24",
+            "username": "new_persona_04",
+            "profile": "bad",
+            "tx_type": "CARD",
+            "amount": 3900.00,
+            "loc": _ANOMALY_LOCATIONS[0],
+            "country": "JP",
+            "merch": _BAD_MERCHANTS[0],
+            "card_present": False,
+            "desc": "Completely new persona 'new_persona_04' high-risk overseas casino CARD purchase ($3,900.00).",
+        },
+        {
+            "scenario_id": "test_tx_25",
+            "username": "new_persona_05",
+            "profile": "bad",
+            "tx_type": "ACH",
+            "amount": 5200.00,
+            "loc": _ANOMALY_LOCATIONS[1],
+            "country": "GB",
+            "merch": _BAD_MERCHANTS[1],
+            "card_present": False,
+            "desc": "Completely new persona 'new_persona_05' high-risk overseas crypto ACH transfer ($5,200.00).",
+        },
+    ]
+
+    for offset, spec in enumerate(new_persona_specs, start=21):
+        is_ach = spec["tx_type"] == "ACH"
+        loc = spec["loc"]
+        merch = spec["merch"]
+        tx_dt = ref_dt + timedelta(hours=offset - 18, minutes=rng.randint(1, 45))
+        tx_details = {
+            "transaction_id": f"tx_test_{offset:03d}",
+            "transaction_type": spec["tx_type"],
+            "amount": spec["amount"],
+            "currency": "USD",
+            "merchant": {
+                "merchant_id": merch["merchant_id"],
+                "name": merch["name"],
+                "mcc": merch["mcc"],
+                "country": spec["country"],
+            },
+        }
+        if is_ach:
+            tx_details["ach_details"] = {
+                "routing_number": "021000021",
+                "account_last_four": f"88{offset:02d}",
+                "account_type": "CHECKING",
+                "sec_code": "WEB",
+                "direction": "DEBIT",
+                "bank_name": "First National Bank",
+            }
+        else:
+            tx_details["card_details"] = {
+                "card_type": "CREDIT",
+                "card_network": "VISA",
+                "card_last_four": f"77{offset:02d}",
+                "is_card_present": bool(spec["card_present"]),
+                "expiration_month": 9,
+                "expiration_year": 2028,
+                "cvv_verified": True,
+                "avs_result": "Y",
+            }
+
+        test_transactions.append(
+            {
+                "scenario_id": spec["scenario_id"],
+                "persona_group": "new_persona",
+                "transaction_profile": spec["profile"],
+                "description": spec["desc"],
+                "username": spec["username"],
+                "datetime": tx_dt.isoformat(),
+                "ip": f"192.0.2.{offset}",
+                "device_id": f"dev_{spec['username']}",
+                "location": {
+                    "latitude": loc["lat"],
+                    "longitude": loc["lon"],
+                    "city": loc["city"],
+                    "state": loc["state"],
+                    "country": spec["country"],
+                    "postal_code": loc["postal_code"],
+                },
+                "transaction_details": tx_details,
+            }
+        )
+
+    return test_transactions
+
+
+def write_test_transactions_dataset(
+    dataset_dir: str | Path = DEFAULT_DATASET_DIR,
+    seed: int = 42,
+    reference_time: datetime | None = None,
+) -> Path:
+    """Write the 25 test transactions dataset to docs/dataset/test_transactions_dataset.json."""
+    target_dir = Path(dataset_dir)
+    target_dir.mkdir(parents=True, exist_ok=True)
+    test_txs = generate_test_transactions_dataset(seed=seed, reference_time=reference_time)
+    out_path = target_dir / "test_transactions_dataset.json"
+    out_path.write_text(json.dumps(test_txs, indent=2), encoding="utf-8")
+    return out_path
+
+
 def write_datasets_to_disk(
     dataset_dir: str | Path = DEFAULT_DATASET_DIR,
     seed: int = 42,
@@ -322,12 +655,18 @@ def write_datasets_to_disk(
     up_path.write_text(json.dumps(datasets["user_profiles"], indent=2), encoding="utf-8")
     tx_path.write_text(json.dumps(datasets["transactions"], indent=2), encoding="utf-8")
     scores_path.write_text(json.dumps(datasets["transaction_scores"], indent=2), encoding="utf-8")
+    test_tx_path = write_test_transactions_dataset(
+        dataset_dir=target_dir,
+        seed=seed,
+        reference_time=reference_time,
+    )
 
     return {
         "dataset_dir": str(target_dir),
         "user_profiles_file": str(up_path),
         "transactions_file": str(tx_path),
         "transaction_scores_file": str(scores_path),
+        "test_transactions_file": str(test_tx_path),
         "user_profiles_count": len(datasets["user_profiles"]),
         "transactions_count": len(datasets["transactions"]),
         "transaction_scores_count": len(datasets["transaction_scores"]),
@@ -350,6 +689,8 @@ def seed_database(
 
     if regenerate or not (up_path.exists() and tx_path.exists() and scores_path.exists()):
         write_datasets_to_disk(dataset_dir=target_dir, seed=seed, reference_time=reference_time)
+    elif not (target_dir / "test_transactions_dataset.json").exists():
+        write_test_transactions_dataset(dataset_dir=target_dir, seed=seed, reference_time=reference_time)
 
     user_profiles: list[dict[str, Any]] = json.loads(up_path.read_text(encoding="utf-8"))
     transactions: list[dict[str, Any]] = json.loads(tx_path.read_text(encoding="utf-8"))

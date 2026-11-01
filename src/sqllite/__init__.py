@@ -63,8 +63,10 @@ from sqllite.queries import (
 from sqllite.seed import (
     DEFAULT_DATASET_DIR,
     generate_seed_datasets,
+    generate_test_transactions_dataset,
     seed_database,
     write_datasets_to_disk,
+    write_test_transactions_dataset,
 )
 
 __all__ = [
@@ -107,6 +109,7 @@ __all__ = [
     "delete_transaction_score",
     "delete_user_profile",
     "generate_seed_datasets",
+    "generate_test_transactions_dataset",
     "get_connection",
     "get_last_transaction_location",
     "get_schema_sql",
@@ -132,4 +135,5 @@ __all__ = [
     "update_transaction_status",
     "update_user_profile",
     "write_datasets_to_disk",
+    "write_test_transactions_dataset",
 ]
