@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transaction Scores (RDBMS) — Transaction Fraud Scorer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top-bar">
+      <div class="header-brand">
+        <h1>Transaction Fraud Scorer</h1>
+        <p class="subtitle">Page 5: SQLite RDBMS — <code>transaction_scores</code> Table (Paginated View &amp; CRUD)</p>
+      </div>
+
+      <nav class="app-nav" aria-label="Primary Navigation">
+        <a href="index.html" class="nav-link">1. Submit Transaction</a>
+        <a href="queue.html" class="nav-link">2. Decision Queue (WebSocket)</a>
+        <a href="users.html" class="nav-link">3. User Profiles (RDBMS)</a>
+        <a href="transactions.html" class="nav-link">4. Transactions (RDBMS)</a>
+        <a href="scores.html" class="nav-link active" aria-current="page">5. Transaction Scores (RDBMS)</a>
+      </nav>
+    </div>
+
+    <section class="gateway-config-bar" aria-label="API Gateway Configuration">
+      <div class="field config-url-field">
+        <label for="gateway-url">API Gateway Base URL</label>
+        <span id="gateway-url-hint" class="hint">Format: http://localhost:8000 or https://*.trycloudflare.com</span>
+        <input
+          type="url"
+          id="gateway-url"
+          name="gateway_url"
+          required
+          value="http://localhost:8000"
+          placeholder="https://your-tunnel.trycloudflare.com"
+          aria-describedby="gateway-url-hint"
+          aria-errormessage="gateway-url-error"
+        >
+        <div id="gateway-url-error" class="error-msg">
+          <span aria-hidden="true">❌</span> Please enter a valid http:// or https:// Gateway URL.
+        </div>
+      </div>
+
+      <div class="config-actions">
+        <button type="button" id="btn-refresh-scores" class="btn btn-primary">Refresh Table</button>
+        <button type="button" id="btn-check-health" class="btn btn-outline">Check Health</button>
+      </div>
+
+      <div class="status-indicators">
+        <div class="status-pill">
+          <span class="status-label">RDBMS Endpoint:</span>
+          <code id="derived-scores-url">http://localhost:8000/api/v1/db/transaction-scores</code>
+        </div>
+        <div id="health-status-text" class="health-status-text" aria-live="polite"></div>
+      </div>
+    </section>
+  </header>
+
+  <main class="single-page-container">
+    <section class="panel" aria-labelledby="scores-table-heading">
+      <div class="panel-header">
+        <h2 id="scores-table-heading">Transaction Scores Table (`transaction_scores`)</h2>
+        <div class="pagination-bar" aria-label="Transaction Scores Pagination">
+          <div class="pagination-size">
+            <label for="scores-page-size">Rows per page:</label>
+            <select id="scores-page-size">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+          <span id="scores-page-info" class="pagination-info" aria-live="polite">Page 1 of 1 (0 total)</span>
+          <div class="pagination-controls">
+            <button type="button" id="scores-prev-btn" class="btn btn-sm btn-outline" disabled>Previous</button>
+            <button type="button" id="scores-next-btn" class="btn btn-sm btn-outline" disabled>Next</button>
+          </div>
+        </div>
+      </div>
+
+      <div tabindex="0" role="region" aria-labelledby="scores-table-caption" class="table-wrapper">
+        <table id="scores-rdbms-table" class="rdbms-scores-table">
+          <caption id="scores-table-caption" class="sr-only">Paginated rows from the transaction_scores SQLite RDBMS table</caption>
+          <thead>
+            <tr>
+              <th>Transaction ID</th>
+              <th>Assessment ID</th>
+              <th>Score</th>
+              <th>Approval Status</th>
+              <th>Decision Accepted</th>
+              <th>Decision Reason</th>
+              <th>Evaluated At</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="scores-table-tbody">
+            <tr>
+              <td colspan="8" class="empty-cell">Loading transaction scores from RDBMS...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <section class="decision-section" aria-labelledby="score-crud-heading">
+        <h3 id="score-crud-heading">Create / Update Transaction Score (`POST` / `PUT /api/v1/db/transaction-scores`)</h3>
+        <form id="db-score-form">
+          <div class="form-row">
+            <div class="field">
+              <label for="db-score-tx-id">Transaction ID</label>
+              <span class="hint">Foreign key to `transactions(transaction_id)`</span>
+              <input type="text" id="db-score-tx-id" required placeholder="tx_...">
+            </div>
+            <div class="field">
+              <label for="db-score-value">Score (0 - 100)</label>
+              <span class="hint">Normalized fraud score</span>
+              <input type="number" id="db-score-value" step="0.1" min="0" max="100" required value="50.0">
+            </div>
+            <div class="field">
+              <label for="db-score-status">Approval Status</label>
+              <span class="hint">Disposition</span>
+              <select id="db-score-status">
+                <option value="APPROVE">APPROVE</option>
+                <option value="REVIEW" selected>REVIEW</option>
+                <option value="DECLINE">DECLINE</option>
+                <option value="ACCEPTED">ACCEPTED</option>
+                <option value="REJECTED">REJECTED</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="db-score-summary">Reasoning Summary</label>
+              <span class="hint">Explainable rationale</span>
+              <input type="text" id="db-score-summary" required value="Manual score entry from WebUI.">
+            </div>
+            <div class="field">
+              <label for="db-score-reason">Decision Reason (Optional)</label>
+              <span class="hint">Analyst audit note</span>
+              <input type="text" id="db-score-reason" placeholder="Optional analyst decision reason">
+            </div>
+          </div>
+
+          <div class="decision-buttons">
+            <button type="submit" id="btn-create-db-score" class="btn btn-primary">Create Score (POST)</button>
+            <button type="button" id="btn-update-db-score" class="btn btn-success">Update Score (PUT)</button>
+          </div>
+        </form>
+        <pre id="score-crud-output" class="code-output">Select a row or submit the form to view RDBMS response.</pre>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

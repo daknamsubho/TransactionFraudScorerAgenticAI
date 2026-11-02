@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Transactions (RDBMS) — Transaction Fraud Scorer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top-bar">
+      <div class="header-brand">
+        <h1>Transaction Fraud Scorer</h1>
+        <p class="subtitle">Page 4: SQLite RDBMS — <code>transactions</code> Table (Paginated View &amp; CRUD)</p>
+      </div>
+
+      <nav class="app-nav" aria-label="Primary Navigation">
+        <a href="index.html" class="nav-link">1. Submit Transaction</a>
+        <a href="queue.html" class="nav-link">2. Decision Queue (WebSocket)</a>
+        <a href="users.html" class="nav-link">3. User Profiles (RDBMS)</a>
+        <a href="transactions.html" class="nav-link active" aria-current="page">4. Transactions (RDBMS)</a>
+        <a href="scores.html" class="nav-link">5. Transaction Scores (RDBMS)</a>
+      </nav>
+    </div>
+
+    <section class="gateway-config-bar" aria-label="API Gateway Configuration">
+      <div class="field config-url-field">
+        <label for="gateway-url">API Gateway Base URL</label>
+        <span id="gateway-url-hint" class="hint">Format: http://localhost:8000 or https://*.trycloudflare.com</span>
+        <input
+          type="url"
+          id="gateway-url"
+          name="gateway_url"
+          required
+          value="http://localhost:8000"
+          placeholder="https://your-tunnel.trycloudflare.com"
+          aria-describedby="gateway-url-hint"
+          aria-errormessage="gateway-url-error"
+        >
+        <div id="gateway-url-error" class="error-msg">
+          <span aria-hidden="true">❌</span> Please enter a valid http:// or https:// Gateway URL.
+        </div>
+      </div>
+
+      <div class="config-actions">
+        <button type="button" id="btn-refresh-transactions" class="btn btn-primary">Refresh Table</button>
+        <button type="button" id="btn-check-health" class="btn btn-outline">Check Health</button>
+      </div>
+
+      <div class="status-indicators">
+        <div class="status-pill">
+          <span class="status-label">RDBMS Endpoint:</span>
+          <code id="derived-transactions-url">http://localhost:8000/api/v1/db/transactions</code>
+        </div>
+        <div id="health-status-text" class="health-status-text" aria-live="polite"></div>
+      </div>
+    </section>
+  </header>
+
+  <main class="single-page-container">
+    <section class="panel" aria-labelledby="tx-table-heading">
+      <div class="panel-header">
+        <h2 id="tx-table-heading">Transactions Table (`transactions`)</h2>
+        <div class="pagination-bar" aria-label="Transactions Pagination">
+          <div class="pagination-size">
+            <label for="tx-filter-status">Status:</label>
+            <select id="tx-filter-status">
+              <option value="">All</option>
+              <option value="APPROVE">APPROVE</option>
+              <option value="REVIEW">REVIEW</option>
+              <option value="DECLINE">DECLINE</option>
+              <option value="ACCEPTED">ACCEPTED</option>
+              <option value="REJECTED">REJECTED</option>
+            </select>
+          </div>
+          <div class="pagination-size">
+            <label for="tx-page-size">Rows per page:</label>
+            <select id="tx-page-size">
+              <option value="5">5</option>
+              <option value="10" selected>10</option>
+              <option value="25">25</option>
+              <option value="50">50</option>
+            </select>
+          </div>
+          <span id="tx-page-info" class="pagination-info" aria-live="polite">Page 1 of 1 (0 total)</span>
+          <div class="pagination-controls">
+            <button type="button" id="tx-prev-btn" class="btn btn-sm btn-outline" disabled>Previous</button>
+            <button type="button" id="tx-next-btn" class="btn btn-sm btn-outline" disabled>Next</button>
+          </div>
+        </div>
+      </div>
+
+      <div tabindex="0" role="region" aria-labelledby="tx-table-caption" class="table-wrapper">
+        <table id="transactions-rdbms-table" class="rdbms-transactions-table">
+          <caption id="tx-table-caption" class="sr-only">Paginated rows from the transactions SQLite RDBMS table</caption>
+          <thead>
+            <tr>
+              <th>Transaction ID</th>
+              <th>Username</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Merchant</th>
+              <th>Location</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="transactions-table-tbody">
+            <tr>
+              <td colspan="8" class="empty-cell">Loading transactions from RDBMS...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <section class="decision-section" aria-labelledby="tx-crud-heading">
+        <h3 id="tx-crud-heading">Create / Update Transaction Record (`POST` / `PUT /api/v1/db/transactions`)</h3>
+        <form id="db-transaction-form">
+          <div class="form-row">
+            <div class="field">
+              <label for="db-tx-id">Transaction ID</label>
+              <span class="hint">Auto-generated on POST if blank; required for PUT</span>
+              <input type="text" id="db-tx-id" placeholder="tx_...">
+            </div>
+            <div class="field">
+              <label for="db-tx-username">Username</label>
+              <span class="hint">Foreign key to `user_profiles`</span>
+              <input type="text" id="db-tx-username" required value="jdoe_99">
+            </div>
+            <div class="field">
+              <label for="db-tx-type">Rail Type</label>
+              <span class="hint">CARD or ACH</span>
+              <select id="db-tx-type">
+                <option value="CARD" selected>CARD</option>
+                <option value="ACH">ACH</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="db-tx-amount">Amount (USD)</label>
+              <span class="hint">Positive amount</span>
+              <input type="number" id="db-tx-amount" step="0.01" min="0.01" required value="250.00">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="field">
+              <label for="db-tx-lat">Latitude</label>
+              <span class="hint">-90 to 90</span>
+              <input type="number" id="db-tx-lat" step="any" min="-90" max="90" required value="37.7749">
+            </div>
+            <div class="field">
+              <label for="db-tx-lon">Longitude</label>
+              <span class="hint">-180 to 180</span>
+              <input type="number" id="db-tx-lon" step="any" min="-180" max="180" required value="-122.4194">
+            </div>
+            <div class="field">
+              <label for="db-tx-city">City</label>
+              <span class="hint">City name</span>
+              <input type="text" id="db-tx-city" value="San Francisco">
+            </div>
+            <div class="field">
+              <label for="db-tx-status">Status</label>
+              <span class="hint">Transaction disposition</span>
+              <select id="db-tx-status">
+                <option value="APPROVE">APPROVE</option>
+                <option value="REVIEW" selected>REVIEW</option>
+                <option value="DECLINE">DECLINE</option>
+                <option value="ACCEPTED">ACCEPTED</option>
+                <option value="REJECTED">REJECTED</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="decision-buttons">
+            <button type="submit" id="btn-create-db-tx" class="btn btn-primary">Create Record (POST)</button>
+            <button type="button" id="btn-update-db-tx" class="btn btn-success">Update Record (PUT)</button>
+          </div>
+        </form>
+        <pre id="tx-crud-output" class="code-output">Select a row or submit the form to view RDBMS response.</pre>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

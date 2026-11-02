@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Decision Queue — Transaction Fraud Scorer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top-bar">
+      <div class="header-brand">
+        <h1>Transaction Fraud Scorer</h1>
+        <p class="subtitle">Page 2: Real-Time WebSocket Queue &amp; Analyst Accept/Reject Decisions</p>
+      </div>
+
+      <nav class="app-nav" aria-label="Primary Navigation">
+        <a href="index.html" class="nav-link">1. Submit Transaction</a>
+        <a href="queue.html" class="nav-link active" aria-current="page">2. Decision Queue (WebSocket)</a>
+        <a href="users.html" class="nav-link">3. User Profiles (RDBMS)</a>
+        <a href="transactions.html" class="nav-link">4. Transactions (RDBMS)</a>
+        <a href="scores.html" class="nav-link">5. Transaction Scores (RDBMS)</a>
+      </nav>
+    </div>
+
+    <section class="gateway-config-bar" aria-label="API Gateway Configuration">
+      <div class="field config-url-field">
+        <label for="gateway-url">API Gateway Base URL</label>
+        <span id="gateway-url-hint" class="hint">Format: http://localhost:8000 or https://*.trycloudflare.com</span>
+        <input
+          type="url"
+          id="gateway-url"
+          name="gateway_url"
+          required
+          value="http://localhost:8000"
+          placeholder="https://your-tunnel.trycloudflare.com"
+          aria-describedby="gateway-url-hint"
+          aria-errormessage="gateway-url-error"
+        >
+        <div id="gateway-url-error" class="error-msg">
+          <span aria-hidden="true">❌</span> Please enter a valid http:// or https:// Gateway URL.
+        </div>
+      </div>
+
+      <div class="field config-user-field">
+        <label for="ws-username-filter">WS Username Filter (Optional)</label>
+        <span id="ws-user-hint" class="hint">Leave blank for all users</span>
+        <input
+          type="text"
+          id="ws-username-filter"
+          name="ws_username_filter"
+          placeholder="e.g. jdoe_99"
+          aria-describedby="ws-user-hint"
+        >
+      </div>
+
+      <div class="config-actions">
+        <button type="button" id="btn-connect-ws" class="btn btn-primary">Connect WebSocket</button>
+        <button type="button" id="btn-disconnect-ws" class="btn btn-secondary" disabled>Disconnect</button>
+        <button type="button" id="btn-check-health" class="btn btn-outline">Check Health</button>
+      </div>
+
+      <div class="status-indicators">
+        <div class="status-pill">
+          <span class="status-label">WebSocket:</span>
+          <span id="ws-status-badge" class="badge badge-neutral">Disconnected</span>
+        </div>
+        <div class="status-pill">
+          <span class="status-label">Derived WS Endpoint:</span>
+          <code id="derived-ws-url">ws://localhost:8000/ws/transactions/events</code>
+        </div>
+        <div id="health-status-text" class="health-status-text" aria-live="polite"></div>
+      </div>
+    </section>
+  </header>
+
+  <main class="single-page-container">
+    <section class="panel stream-panel" aria-labelledby="ws-stream-heading">
+      <div class="panel-header">
+        <h2 id="ws-stream-heading">Real-Time Transaction Queue (`/ws/transactions/events`)</h2>
+        <button type="button" id="btn-clear-events" class="btn btn-sm btn-outline">Clear Queue</button>
+      </div>
+
+      <div tabindex="0" role="region" aria-labelledby="ws-table-caption" class="table-wrapper">
+        <table id="ws-events-table">
+          <caption id="ws-table-caption" class="sr-only">Live transaction score events received over WebSocket</caption>
+          <thead>
+            <tr>
+              <th>Transaction ID</th>
+              <th>Username</th>
+              <th>Amount</th>
+              <th>Score</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ws-events-tbody">
+            <tr id="ws-empty-row">
+              <td colspan="6" class="empty-cell">
+                Waiting for WebSocket events... Connect to the Gateway and submit a transaction from the Submit page.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Analyst Decision Section (`POST /api/v1/transactions/decision`) -->
+      <section class="decision-section" aria-labelledby="decision-heading">
+        <h3 id="decision-heading">Submit Transaction Decision (`POST /api/v1/transactions/decision`)</h3>
+        <form id="decision-form" class="decision-form">
+          <div class="form-row">
+            <div class="field">
+              <label for="decision-tx-id">Transaction ID</label>
+              <span id="decision-tx-hint" class="hint">Click a row above or enter ID</span>
+              <input
+                type="text"
+                id="decision-tx-id"
+                name="transaction_id"
+                required
+                placeholder="tx_..."
+                aria-describedby="decision-tx-hint"
+                aria-errormessage="decision-tx-error"
+              >
+              <div id="decision-tx-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Transaction ID is required.
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="decision-reason">Reason</label>
+              <span id="decision-reason-hint" class="hint">Audit rationale for Accept / Reject</span>
+              <input
+                type="text"
+                id="decision-reason"
+                name="reason"
+                required
+                value="Verified by analyst in WebUI console."
+                aria-describedby="decision-reason-hint"
+                aria-errormessage="decision-reason-error"
+              >
+              <div id="decision-reason-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Reason is required.
+              </div>
+            </div>
+          </div>
+
+          <div class="decision-buttons">
+            <button type="button" id="btn-accept-tx" class="btn btn-success">Accept Transaction</button>
+            <button type="button" id="btn-reject-tx" class="btn btn-danger">Reject Transaction</button>
+          </div>
+        </form>
+        <pre id="decision-response-output" class="code-output">No decision submitted yet.</pre>
+      </section>
+
+      <!-- Selected Event Details Inspector -->
+      <section class="inspector-section" aria-labelledby="inspector-heading">
+        <h3 id="inspector-heading">WebSocket Event Details (`score_details` &amp; Echoed Request)</h3>
+        <pre id="ws-event-inspector" class="code-output">Select or receive a WebSocket event to inspect its full payload.</pre>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

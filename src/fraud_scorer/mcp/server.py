@@ -1,29 +1,29 @@
-"""Model Context Protocol (MCP) server for Transaction Fraud Scoring."""
+"""FastMCP server for Transaction Fraud Scoring."""
 
 import argparse
 import sys
 from typing import Any
 
-from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver import MCPServer as FastMCP
 
 from fraud_scorer.config import settings
-from fraud_scorer.mcp.tools.risk_tools import (
+from fraud_scorer.mcp.tools.check_geo_anomaly import (
     check_geo_anomaly as _check_geo_anomaly,
 )
-from fraud_scorer.mcp.tools.risk_tools import (
+from fraud_scorer.mcp.tools.check_merchant_risk import (
     check_merchant_risk as _check_merchant_risk,
 )
-from fraud_scorer.mcp.tools.risk_tools import (
+from fraud_scorer.mcp.tools.check_velocity import (
     check_velocity as _check_velocity,
 )
-from fraud_scorer.mcp.tools.risk_tools import (
+from fraud_scorer.mcp.tools.lookup_account_history import (
     lookup_account_history as _lookup_account_history,
 )
 
-# Initialize MCP Server
-mcp_server = MCPServer(
+# Initialize FastMCP Server
+mcp_server = FastMCP(
     name="TransactionFraudScorerMCP",
-    instructions="MCP server providing financial transaction risk analysis and fraud detection tools.",
+    instructions="FastMCP server providing financial transaction risk analysis and fraud detection tools.",
 )
 
 
@@ -44,6 +44,7 @@ def check_geo_anomaly(
     current_lat: float,
     current_lon: float,
     current_timestamp_iso: str | None = None,
+    timestamp: str | None = None,
 ) -> dict[str, Any]:
     """Detect impossible travel, extreme distances, and rapid geographic hops between transactions.
 
@@ -52,12 +53,14 @@ def check_geo_anomaly(
         current_lat: Current transaction latitude (-90.0 to 90.0).
         current_lon: Current transaction longitude (-180.0 to 180.0).
         current_timestamp_iso: ISO-8601 timestamp string of the current transaction.
+        timestamp: Optional alias for current_timestamp_iso.
     """
     return _check_geo_anomaly(
         account_id=account_id,
         current_lat=current_lat,
         current_lon=current_lon,
         current_timestamp_iso=current_timestamp_iso,
+        timestamp=timestamp,
     )
 
 
@@ -82,15 +85,15 @@ def lookup_account_history(account_id: str) -> dict[str, Any]:
     return _lookup_account_history(account_id=account_id)
 
 
-def create_server() -> MCPServer:
-    """Return the configured MCPServer instance."""
+def create_server() -> FastMCP:
+    """Return the configured FastMCP server instance."""
     return mcp_server
 
 
 def main() -> None:
-    """CLI entrypoint for running the MCP server."""
+    """CLI entrypoint for running the FastMCP server."""
     parser = argparse.ArgumentParser(
-        description="Transaction Fraud Scorer MCP Server",
+        description="Transaction Fraud Scorer FastMCP Server",
     )
     parser.add_argument(
         "--transport",
@@ -113,10 +116,10 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.transport == "sse":
-        print(f"Starting Fraud Scorer MCP Server over SSE at http://{args.host}:{args.port}...", file=sys.stderr)
+        print(f"Starting Fraud Scorer FastMCP Server over SSE at http://{args.host}:{args.port}...", file=sys.stderr)
         mcp_server.run(transport="sse", host=args.host, port=args.port)
     else:
-        print("Starting Fraud Scorer MCP Server over stdio...", file=sys.stderr)
+        print("Starting Fraud Scorer FastMCP Server over stdio...", file=sys.stderr)
         mcp_server.run(transport="stdio")
 
 

@@ -1,0 +1,6 @@
+- All documents need to go `docs`
+- Any plans that are created need to be written under `docs/plans`
+- All Source Code need to go `src`
+- Architecture file is present at `docs/architecture.md`
+- All systems should have its own folder under `src`
+- All Relational Database schemas are here `docs/rdbms-model-schema`

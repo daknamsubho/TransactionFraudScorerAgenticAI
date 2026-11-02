@@ -1,0 +1,988 @@
+[
+  {
+    "scenario_id": "test_tx_01",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_01' routine CARD purchase at Whole Foods Market in home city San Francisco ($34.25).",
+    "username": "good_persona_01",
+    "datetime": "2026-11-01T00:21:20+00:00",
+    "ip": "198.51.100.132",
+    "device_id": "dev_good_persona_01",
+    "location": {
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "city": "San Francisco",
+      "state": "CA",
+      "country": "US",
+      "postal_code": "94103"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_001",
+      "transaction_type": "CARD",
+      "amount": 34.25,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_grocery_01",
+        "name": "Whole Foods Market",
+        "mcc": "5411",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "6642",
+        "is_card_present": true,
+        "expiration_month": 8,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_02",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_02' routine CARD purchase at Blue Bottle Coffee in home city New York ($44.00).",
+    "username": "good_persona_02",
+    "datetime": "2026-10-31T16:52:28+00:00",
+    "ip": "198.51.100.200",
+    "device_id": "dev_good_persona_02",
+    "location": {
+      "latitude": 40.7128,
+      "longitude": -74.006,
+      "city": "New York",
+      "state": "NY",
+      "country": "US",
+      "postal_code": "10001"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_002",
+      "transaction_type": "CARD",
+      "amount": 44.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_cafe_02",
+        "name": "Blue Bottle Coffee",
+        "mcc": "5814",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "3710",
+        "is_card_present": true,
+        "expiration_month": 8,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_03",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_03' routine CARD purchase at Shell Service Station in home city Austin ($53.75).",
+    "username": "good_persona_03",
+    "datetime": "2026-11-01T00:14:48+00:00",
+    "ip": "198.51.100.205",
+    "device_id": "dev_good_persona_03",
+    "location": {
+      "latitude": 30.2672,
+      "longitude": -97.7431,
+      "city": "Austin",
+      "state": "TX",
+      "country": "US",
+      "postal_code": "78701"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_003",
+      "transaction_type": "CARD",
+      "amount": 53.75,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_fuel_03",
+        "name": "Shell Service Station",
+        "mcc": "5541",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "8275",
+        "is_card_present": true,
+        "expiration_month": 8,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_04",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_04' routine ACH purchase at Walgreens Pharmacy in home city Seattle ($63.50).",
+    "username": "good_persona_04",
+    "datetime": "2026-11-01T00:43:04+00:00",
+    "ip": "198.51.100.74",
+    "device_id": "dev_good_persona_04",
+    "location": {
+      "latitude": 47.6062,
+      "longitude": -122.3321,
+      "city": "Seattle",
+      "state": "WA",
+      "country": "US",
+      "postal_code": "98101"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_004",
+      "transaction_type": "ACH",
+      "amount": 63.5,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_pharmacy_04",
+        "name": "Walgreens Pharmacy",
+        "mcc": "5912",
+        "country": "US"
+      },
+      "ach_details": {
+        "routing_number": "021000021",
+        "account_last_four": "4424",
+        "account_type": "CHECKING",
+        "sec_code": "WEB",
+        "direction": "DEBIT",
+        "bank_name": "Chase Bank"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_05",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_05' routine CARD purchase at Target Store in home city Chicago ($73.25).",
+    "username": "good_persona_05",
+    "datetime": "2026-11-01T02:40:36+00:00",
+    "ip": "198.51.100.33",
+    "device_id": "dev_good_persona_05",
+    "location": {
+      "latitude": 41.8781,
+      "longitude": -87.6298,
+      "city": "Chicago",
+      "state": "IL",
+      "country": "US",
+      "postal_code": "60601"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_005",
+      "transaction_type": "CARD",
+      "amount": 73.25,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_retail_05",
+        "name": "Target Store",
+        "mcc": "5311",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "1863",
+        "is_card_present": true,
+        "expiration_month": 8,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_06",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_06' routine CARD purchase at Pacific Gas & Electric in home city Denver ($83.00).",
+    "username": "good_persona_06",
+    "datetime": "2026-10-31T09:58:12+00:00",
+    "ip": "198.51.100.33",
+    "device_id": "dev_good_persona_06",
+    "location": {
+      "latitude": 39.7392,
+      "longitude": -104.9903,
+      "city": "Denver",
+      "state": "CO",
+      "country": "US",
+      "postal_code": "80202"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_006",
+      "transaction_type": "CARD",
+      "amount": 83.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_utility_06",
+        "name": "Pacific Gas & Electric",
+        "mcc": "4900",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "2583",
+        "is_card_present": true,
+        "expiration_month": 8,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_07",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_07' routine CARD purchase at Sweetgreen Kitchen in home city Boston ($92.75).",
+    "username": "good_persona_07",
+    "datetime": "2026-11-01T03:46:42+00:00",
+    "ip": "198.51.100.207",
+    "device_id": "dev_good_persona_07",
+    "location": {
+      "latitude": 42.3601,
+      "longitude": -71.0589,
+      "city": "Boston",
+      "state": "MA",
+      "country": "US",
+      "postal_code": "02108"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_007",
+      "transaction_type": "CARD",
+      "amount": 92.75,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_dining_07",
+        "name": "Sweetgreen Kitchen",
+        "mcc": "5812",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "8997",
+        "is_card_present": true,
+        "expiration_month": 8,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_08",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_08' routine ACH purchase at Powell's City of Books in home city Miami ($102.50).",
+    "username": "good_persona_08",
+    "datetime": "2026-10-31T14:54:56+00:00",
+    "ip": "198.51.100.174",
+    "device_id": "dev_good_persona_08",
+    "location": {
+      "latitude": 25.7617,
+      "longitude": -80.1918,
+      "city": "Miami",
+      "state": "FL",
+      "country": "US",
+      "postal_code": "33131"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_008",
+      "transaction_type": "ACH",
+      "amount": 102.5,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_books_08",
+        "name": "Powell's City of Books",
+        "mcc": "5942",
+        "country": "US"
+      },
+      "ach_details": {
+        "routing_number": "021000021",
+        "account_last_four": "3564",
+        "account_type": "CHECKING",
+        "sec_code": "WEB",
+        "direction": "DEBIT",
+        "bank_name": "Chase Bank"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_09",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_09' routine CARD purchase at Whole Foods Market in home city Atlanta ($112.25).",
+    "username": "good_persona_09",
+    "datetime": "2026-10-31T14:22:57+00:00",
+    "ip": "198.51.100.228",
+    "device_id": "dev_good_persona_09",
+    "location": {
+      "latitude": 33.749,
+      "longitude": -84.388,
+      "city": "Atlanta",
+      "state": "GA",
+      "country": "US",
+      "postal_code": "30303"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_009",
+      "transaction_type": "CARD",
+      "amount": 112.25,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_grocery_01",
+        "name": "Whole Foods Market",
+        "mcc": "5411",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "6378",
+        "is_card_present": true,
+        "expiration_month": 8,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_10",
+    "persona_group": "existing_persona",
+    "transaction_profile": "good",
+    "description": "Existing persona 'good_persona_10' routine CARD purchase at Blue Bottle Coffee in home city Phoenix ($122.00).",
+    "username": "good_persona_10",
+    "datetime": "2026-10-31T23:16:23+00:00",
+    "ip": "198.51.100.29",
+    "device_id": "dev_good_persona_10",
+    "location": {
+      "latitude": 33.4484,
+      "longitude": -112.074,
+      "city": "Phoenix",
+      "state": "AZ",
+      "country": "US",
+      "postal_code": "85004"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_010",
+      "transaction_type": "CARD",
+      "amount": 122.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_cafe_02",
+        "name": "Blue Bottle Coffee",
+        "mcc": "5814",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "6059",
+        "is_card_present": true,
+        "expiration_month": 8,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_11",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'bad_persona_01' suspicious CARD transaction in Tokyo at high-risk merchant Royal Flush Online Casino (MCC 7995, $2,825.00).",
+    "username": "bad_persona_01",
+    "datetime": "2026-10-30T04:06:49+00:00",
+    "ip": "203.0.113.33",
+    "device_id": "dev_unrecognized_11",
+    "location": {
+      "latitude": 35.6762,
+      "longitude": 139.6503,
+      "city": "Tokyo",
+      "state": "TK",
+      "country": "JP",
+      "postal_code": "100-0001"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_011",
+      "transaction_type": "CARD",
+      "amount": 2825.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_casino_91",
+        "name": "Royal Flush Online Casino",
+        "mcc": "7995",
+        "country": "JP"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "MASTERCARD",
+        "card_last_four": "1729",
+        "is_card_present": false,
+        "expiration_month": 11,
+        "expiration_year": 2027,
+        "cvv_verified": false,
+        "avs_result": "N"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_12",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'bad_persona_02' suspicious CARD transaction in London at high-risk merchant Instant Crypto OTC Exchange (MCC 6051, $3,200.00).",
+    "username": "bad_persona_02",
+    "datetime": "2026-10-28T12:55:02+00:00",
+    "ip": "203.0.113.36",
+    "device_id": "dev_unrecognized_12",
+    "location": {
+      "latitude": 51.5074,
+      "longitude": -0.1278,
+      "city": "London",
+      "state": "LND",
+      "country": "GB",
+      "postal_code": "EC1A"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_012",
+      "transaction_type": "CARD",
+      "amount": 3200.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_crypto_92",
+        "name": "Instant Crypto OTC Exchange",
+        "mcc": "6051",
+        "country": "GB"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "MASTERCARD",
+        "card_last_four": "2607",
+        "is_card_present": false,
+        "expiration_month": 11,
+        "expiration_year": 2027,
+        "cvv_verified": false,
+        "avs_result": "N"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_13",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'bad_persona_03' suspicious ACH transaction in Lagos at high-risk merchant Global Express Wire Transfer (MCC 4829, $3,575.00).",
+    "username": "bad_persona_03",
+    "datetime": "2026-10-30T08:49:08+00:00",
+    "ip": "203.0.113.39",
+    "device_id": "dev_unrecognized_13",
+    "location": {
+      "latitude": 6.5244,
+      "longitude": 3.3792,
+      "city": "Lagos",
+      "state": "LA",
+      "country": "NG",
+      "postal_code": "100001"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_013",
+      "transaction_type": "ACH",
+      "amount": 3575.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_wire_93",
+        "name": "Global Express Wire Transfer",
+        "mcc": "4829",
+        "country": "NG"
+      },
+      "ach_details": {
+        "routing_number": "021000021",
+        "account_last_four": "9878",
+        "account_type": "CHECKING",
+        "sec_code": "WEB",
+        "direction": "DEBIT",
+        "bank_name": "Offshore Clearing Bank"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_14",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'bad_persona_04' suspicious CARD transaction in Frankfurt at high-risk merchant Direct Inbound TeleServices (MCC 5967, $3,950.00).",
+    "username": "bad_persona_04",
+    "datetime": "2026-10-28T21:16:17+00:00",
+    "ip": "203.0.113.42",
+    "device_id": "dev_unrecognized_14",
+    "location": {
+      "latitude": 50.1109,
+      "longitude": 8.6821,
+      "city": "Frankfurt",
+      "state": "HE",
+      "country": "DE",
+      "postal_code": "60311"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_014",
+      "transaction_type": "CARD",
+      "amount": 3950.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_tele_94",
+        "name": "Direct Inbound TeleServices",
+        "mcc": "5967",
+        "country": "DE"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "MASTERCARD",
+        "card_last_four": "1189",
+        "is_card_present": false,
+        "expiration_month": 11,
+        "expiration_year": 2027,
+        "cvv_verified": false,
+        "avs_result": "N"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_15",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'bad_persona_05' suspicious CARD transaction in Sydney at high-risk merchant Metro Gold & Bullion Exchange (MCC 5933, $4,325.00).",
+    "username": "bad_persona_05",
+    "datetime": "2026-10-30T07:09:02+00:00",
+    "ip": "203.0.113.45",
+    "device_id": "dev_unrecognized_15",
+    "location": {
+      "latitude": -33.8688,
+      "longitude": 151.2093,
+      "city": "Sydney",
+      "state": "NSW",
+      "country": "AU",
+      "postal_code": "2000"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_015",
+      "transaction_type": "CARD",
+      "amount": 4325.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_pawn_95",
+        "name": "Metro Gold & Bullion Exchange",
+        "mcc": "5933",
+        "country": "AU"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "MASTERCARD",
+        "card_last_four": "7934",
+        "is_card_present": false,
+        "expiration_month": 11,
+        "expiration_year": 2027,
+        "cvv_verified": false,
+        "avs_result": "N"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_16",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'good_persona_11' suspicious CARD transaction in Tokyo at high-risk merchant Royal Flush Online Casino (MCC 7995, $4,700.00).",
+    "username": "good_persona_11",
+    "datetime": "2026-10-31T13:47:15+00:00",
+    "ip": "203.0.113.48",
+    "device_id": "dev_unrecognized_16",
+    "location": {
+      "latitude": 35.6762,
+      "longitude": 139.6503,
+      "city": "Tokyo",
+      "state": "TK",
+      "country": "JP",
+      "postal_code": "100-0001"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_016",
+      "transaction_type": "CARD",
+      "amount": 4700.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_casino_91",
+        "name": "Royal Flush Online Casino",
+        "mcc": "7995",
+        "country": "JP"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "MASTERCARD",
+        "card_last_four": "7822",
+        "is_card_present": false,
+        "expiration_month": 11,
+        "expiration_year": 2027,
+        "cvv_verified": false,
+        "avs_result": "N"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_17",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'good_persona_12' suspicious ACH transaction in London at high-risk merchant Instant Crypto OTC Exchange (MCC 6051, $5,075.00).",
+    "username": "good_persona_12",
+    "datetime": "2026-10-31T16:52:48+00:00",
+    "ip": "203.0.113.51",
+    "device_id": "dev_unrecognized_17",
+    "location": {
+      "latitude": 51.5074,
+      "longitude": -0.1278,
+      "city": "London",
+      "state": "LND",
+      "country": "GB",
+      "postal_code": "EC1A"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_017",
+      "transaction_type": "ACH",
+      "amount": 5075.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_crypto_92",
+        "name": "Instant Crypto OTC Exchange",
+        "mcc": "6051",
+        "country": "GB"
+      },
+      "ach_details": {
+        "routing_number": "021000021",
+        "account_last_four": "1102",
+        "account_type": "CHECKING",
+        "sec_code": "WEB",
+        "direction": "DEBIT",
+        "bank_name": "Offshore Clearing Bank"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_18",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'good_persona_13' suspicious CARD transaction in Lagos at high-risk merchant Global Express Wire Transfer (MCC 4829, $5,450.00).",
+    "username": "good_persona_13",
+    "datetime": "2026-10-31T00:28:27+00:00",
+    "ip": "203.0.113.54",
+    "device_id": "dev_unrecognized_18",
+    "location": {
+      "latitude": 6.5244,
+      "longitude": 3.3792,
+      "city": "Lagos",
+      "state": "LA",
+      "country": "NG",
+      "postal_code": "100001"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_018",
+      "transaction_type": "CARD",
+      "amount": 5450.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_wire_93",
+        "name": "Global Express Wire Transfer",
+        "mcc": "4829",
+        "country": "NG"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "MASTERCARD",
+        "card_last_four": "6269",
+        "is_card_present": false,
+        "expiration_month": 11,
+        "expiration_year": 2027,
+        "cvv_verified": false,
+        "avs_result": "N"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_19",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'good_persona_14' suspicious CARD transaction in Frankfurt at high-risk merchant Direct Inbound TeleServices (MCC 5967, $5,825.00).",
+    "username": "good_persona_14",
+    "datetime": "2026-10-31T14:56:53+00:00",
+    "ip": "203.0.113.57",
+    "device_id": "dev_unrecognized_19",
+    "location": {
+      "latitude": 50.1109,
+      "longitude": 8.6821,
+      "city": "Frankfurt",
+      "state": "HE",
+      "country": "DE",
+      "postal_code": "60311"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_019",
+      "transaction_type": "CARD",
+      "amount": 5825.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_tele_94",
+        "name": "Direct Inbound TeleServices",
+        "mcc": "5967",
+        "country": "DE"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "MASTERCARD",
+        "card_last_four": "7438",
+        "is_card_present": false,
+        "expiration_month": 11,
+        "expiration_year": 2027,
+        "cvv_verified": false,
+        "avs_result": "N"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_20",
+    "persona_group": "existing_persona",
+    "transaction_profile": "bad",
+    "description": "Existing persona 'good_persona_15' suspicious ACH transaction in Sydney at high-risk merchant Metro Gold & Bullion Exchange (MCC 5933, $6,200.00).",
+    "username": "good_persona_15",
+    "datetime": "2026-10-31T10:57:42+00:00",
+    "ip": "203.0.113.60",
+    "device_id": "dev_unrecognized_20",
+    "location": {
+      "latitude": -33.8688,
+      "longitude": 151.2093,
+      "city": "Sydney",
+      "state": "NSW",
+      "country": "AU",
+      "postal_code": "2000"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_020",
+      "transaction_type": "ACH",
+      "amount": 6200.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_pawn_95",
+        "name": "Metro Gold & Bullion Exchange",
+        "mcc": "5933",
+        "country": "AU"
+      },
+      "ach_details": {
+        "routing_number": "021000021",
+        "account_last_four": "1116",
+        "account_type": "CHECKING",
+        "sec_code": "WEB",
+        "direction": "DEBIT",
+        "bank_name": "Offshore Clearing Bank"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_21",
+    "persona_group": "new_persona",
+    "transaction_profile": "good",
+    "description": "Completely new persona 'new_persona_01' small in-person grocery CARD purchase ($38.50).",
+    "username": "new_persona_01",
+    "datetime": "2026-10-31T21:12:00+00:00",
+    "ip": "192.0.2.21",
+    "device_id": "dev_new_persona_01",
+    "location": {
+      "latitude": 37.7749,
+      "longitude": -122.4194,
+      "city": "San Francisco",
+      "state": "CA",
+      "country": "US",
+      "postal_code": "94103"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_021",
+      "transaction_type": "CARD",
+      "amount": 38.5,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_grocery_01",
+        "name": "Whole Foods Market",
+        "mcc": "5411",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "7721",
+        "is_card_present": true,
+        "expiration_month": 9,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_22",
+    "persona_group": "new_persona",
+    "transaction_profile": "good",
+    "description": "Completely new persona 'new_persona_02' domestic utility ACH payment ($112.00).",
+    "username": "new_persona_02",
+    "datetime": "2026-10-31T22:03:00+00:00",
+    "ip": "192.0.2.22",
+    "device_id": "dev_new_persona_02",
+    "location": {
+      "latitude": 30.2672,
+      "longitude": -97.7431,
+      "city": "Austin",
+      "state": "TX",
+      "country": "US",
+      "postal_code": "78701"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_022",
+      "transaction_type": "ACH",
+      "amount": 112.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_utility_06",
+        "name": "Pacific Gas & Electric",
+        "mcc": "4900",
+        "country": "US"
+      },
+      "ach_details": {
+        "routing_number": "021000021",
+        "account_last_four": "8822",
+        "account_type": "CHECKING",
+        "sec_code": "WEB",
+        "direction": "DEBIT",
+        "bank_name": "First National Bank"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_23",
+    "persona_group": "new_persona",
+    "transaction_profile": "bad",
+    "description": "Completely new persona 'new_persona_03' high-value online electronics CARD purchase ($1,650.00).",
+    "username": "new_persona_03",
+    "datetime": "2026-10-31T23:02:00+00:00",
+    "ip": "192.0.2.23",
+    "device_id": "dev_new_persona_03",
+    "location": {
+      "latitude": 40.7128,
+      "longitude": -74.006,
+      "city": "New York",
+      "state": "NY",
+      "country": "US",
+      "postal_code": "10001"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_023",
+      "transaction_type": "CARD",
+      "amount": 1650.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_electronics_88",
+        "name": "MegaTech Electronics",
+        "mcc": "5732",
+        "country": "US"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "7723",
+        "is_card_present": false,
+        "expiration_month": 9,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_24",
+    "persona_group": "new_persona",
+    "transaction_profile": "bad",
+    "description": "Completely new persona 'new_persona_04' high-risk overseas casino CARD purchase ($3,900.00).",
+    "username": "new_persona_04",
+    "datetime": "2026-11-01T00:15:00+00:00",
+    "ip": "192.0.2.24",
+    "device_id": "dev_new_persona_04",
+    "location": {
+      "latitude": 35.6762,
+      "longitude": 139.6503,
+      "city": "Tokyo",
+      "state": "TK",
+      "country": "JP",
+      "postal_code": "100-0001"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_024",
+      "transaction_type": "CARD",
+      "amount": 3900.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_casino_91",
+        "name": "Royal Flush Online Casino",
+        "mcc": "7995",
+        "country": "JP"
+      },
+      "card_details": {
+        "card_type": "CREDIT",
+        "card_network": "VISA",
+        "card_last_four": "7724",
+        "is_card_present": false,
+        "expiration_month": 9,
+        "expiration_year": 2028,
+        "cvv_verified": true,
+        "avs_result": "Y"
+      }
+    }
+  },
+  {
+    "scenario_id": "test_tx_25",
+    "persona_group": "new_persona",
+    "transaction_profile": "bad",
+    "description": "Completely new persona 'new_persona_05' high-risk overseas crypto ACH transfer ($5,200.00).",
+    "username": "new_persona_05",
+    "datetime": "2026-11-01T01:10:00+00:00",
+    "ip": "192.0.2.25",
+    "device_id": "dev_new_persona_05",
+    "location": {
+      "latitude": 51.5074,
+      "longitude": -0.1278,
+      "city": "London",
+      "state": "LND",
+      "country": "GB",
+      "postal_code": "EC1A"
+    },
+    "transaction_details": {
+      "transaction_id": "tx_test_025",
+      "transaction_type": "ACH",
+      "amount": 5200.0,
+      "currency": "USD",
+      "merchant": {
+        "merchant_id": "merch_crypto_92",
+        "name": "Instant Crypto OTC Exchange",
+        "mcc": "6051",
+        "country": "GB"
+      },
+      "ach_details": {
+        "routing_number": "021000021",
+        "account_last_four": "8825",
+        "account_type": "CHECKING",
+        "sec_code": "WEB",
+        "direction": "DEBIT",
+        "bank_name": "First National Bank"
+      }
+    }
+  }
+]
