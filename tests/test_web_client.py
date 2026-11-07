@@ -165,3 +165,33 @@ def test_api_gateway_has_no_test_dataset_route() -> None:
 
     paths = {getattr(route, "path", "") for route in app.routes}
     assert not any("test-dataset" in path for path in paths)
+
+
+def test_vectordb_html_page_and_navigation_exist() -> None:
+    """PRD-016: Verify vectordb.html exists with query, Top K, filters, and upload form, and is linked across pages."""
+    static_dir = get_static_dir()
+    vectordb_path = static_dir / "vectordb.html"
+    assert vectordb_path.is_file()
+
+    vectordb_html = vectordb_path.read_text(encoding="utf-8")
+    assert 'id="vector-query-form"' in vectordb_html
+    assert 'id="vector-query-input"' in vectordb_html
+    assert 'id="vector-top-k"' in vectordb_html
+    assert 'name="policy_year"' in vectordb_html
+    assert 'id="vector-category-filter"' in vectordb_html
+    assert 'id="vector-results-container"' in vectordb_html
+    assert 'id="vector-upload-form"' in vectordb_html
+    assert 'id="vector-upload-file"' in vectordb_html
+    assert 'id="vector-upload-content"' in vectordb_html
+
+    # Verify navigation link to vectordb.html exists on all 6 pages
+    for page_name in ("index.html", "queue.html", "users.html", "transactions.html", "scores.html", "vectordb.html"):
+        page_text = (static_dir / page_name).read_text(encoding="utf-8")
+        assert 'href="vectordb.html"' in page_text
+
+    # Verify app.js references the ChromaDB endpoints
+    app_js = (static_dir / "app.js").read_text(encoding="utf-8")
+    assert "/api/v1/vector/query" in app_js
+    assert "/api/v1/vector/stats" in app_js
+    assert "/api/v1/vector/documents" in app_js
+

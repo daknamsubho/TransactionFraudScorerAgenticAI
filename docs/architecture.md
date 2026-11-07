@@ -199,3 +199,17 @@ Every assessment generates an overall risk score normalized between **0.0** and 
 | `check_merchant_risk` | `merchant_id`, `mcc` | `risk_tier`, `high_risk_category`, `merchant_reputation` |
 | `lookup_account_history` | `account_id` | `account_age_days`, `prior_disputes`, `avg_transaction_amount` |
 
+---
+
+## 7. Multi-Path & Tree-of-Thoughts (ToT) Architecture (Extension)
+
+To evaluate, compare, and benchmark diverse tool subsets and agent combinations, the system supports a **LangGraph StateGraph Tree-of-Thoughts (ToT)** execution mode alongside the standard linear pipeline.
+
+- Comprehensive formal specification, search mechanics, role-to-tool mappings, and mitigations are documented in:
+  **[`docs/tot-specification.md`](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/tot-specification.md)**.
+- Architectural design, state schemas, and branch execution models are documented in:
+  **[`docs/tree-of-thoughts-architecture.md`](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/tree-of-thoughts-architecture.md)**.
+- Operates in a **Hybrid Mode** selectable per request (`mode: "standard" | "tree_of_thoughts"`).
+- Enables simultaneous **Tool & Agent Ablation** and **Semantic Fraud Hypothesis Testing** with automated confidence-based branch pruning and marginal tool attribution.
+
+

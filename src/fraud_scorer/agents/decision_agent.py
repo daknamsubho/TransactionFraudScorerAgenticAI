@@ -1,26 +1,33 @@
-"""Decision Agent (`src/fraud_scorer/agents/decision_agent.py`)."""
+"""Decision Agent (`src/fraud_scorer/agents/decision_agent.py`).
+
+Implements the Actor in the Actor-Critic topology using Tier 3 Deep Reasoning
+(`qwen3.8:27b` with automatic local Ollama fallback).
+"""
+
+from typing import Any
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_ollama import ChatOllama
 
 from fraud_scorer.agents.analysis_agent import AnalysisResult
 from fraud_scorer.agents.data_retriever_agent import DataRetrievalResult
-from fraud_scorer.config import settings
+from fraud_scorer.config import resolve_ollama_model, settings
 from fraud_scorer.models.transaction import FraudAssessment, RiskFactor, Transaction
 from fraud_scorer.skills.risk_scoring_decision_skill import RiskScoringDecisionSkill
 
-DECISION_AGENT_SYSTEM_PROMPT = """You are the Decision Agent in a multi-agent financial fraud detection system.
-You receive all relevant customer profile data and risk analysis factors from the Orchestrator Agent.
+DECISION_AGENT_SYSTEM_PROMPT = """You are the Decision Agent (Actor — Tier 3 Deep Reasoning LLM) in a multi-agent financial fraud detection system.
+You receive customer profile data, ChromaDB RAG policy clauses, and risk analysis factors from the Orchestrator Agent.
 Your responsibility is to synthesize the final fraud risk rationale explaining the composite score (0.0-100.0)
 and disposition:
-- 0.0 to 29.9  -> APPROVE
-- 30.0 to 69.9 -> REVIEW
+- 0.0 to 29.9   -> APPROVE
+- 30.0 to 69.9  -> REVIEW
 - 70.0 to 100.0 -> DECLINE
-Keep your rationale concise (1-2 sentences) and grounded strictly in the provided evidence."""
+If the Evaluator Agent (Critic) provides remediation feedback on a retry pass, you MUST address that feedback directly.
+Keep your rationale concise (1-2 sentences) and grounded strictly in the provided evidence and policy clauses."""
 
 
 class DecisionAgent:
-    """LangChain Agent that computes the final risk score and APPROVE/REVIEW/DECLINE decision."""
+    """LangChain Agent (Actor) that computes the risk score and APPROVE/REVIEW/DECLINE decision."""
 
     def __init__(
         self,
@@ -29,8 +36,17 @@ class DecisionAgent:
         decision_skill: RiskScoringDecisionSkill | None = None,
     ) -> None:
         self.ollama_base_url = ollama_base_url or settings.ollama_base_url
-        self.model_name = model_name or settings.ollama_model
+        self.preferred_model = model_name or settings.decision_model
+        self.model_name = self.preferred_model
         self.decision_skill = decision_skill or RiskScoringDecisionSkill()
+
+    def _get_resolved_model(self) -> str:
+        """Resolve Tier 3 model (`qwen3.8:27b`) against installed Ollama models with fallback."""
+        return resolve_ollama_model(
+            preferred_model=self.preferred_model,
+            fallback_model=settings.ollama_model,
+            base_url=self.ollama_base_url,
+        )
 
     async def make_decision(
         self,
@@ -38,14 +54,26 @@ class DecisionAgent:
         data_result: DataRetrievalResult | None = None,
         analysis_result: AnalysisResult | None = None,
         use_llm: bool = False,
+        evaluator_feedback: str | None = None,
+        supplementary_retrievals: list[dict[str, Any]] | None = None,
     ) -> FraudAssessment:
-        """Ingest all relevant data from the Orchestrator and produce the final FraudAssessment."""
+        """Ingest all relevant data from the Orchestrator and produce a draft or revised FraudAssessment."""
         aggregated_factors: list[RiskFactor] = []
         aggregated_tools: list[str] = []
+        rag_policies: list[dict[str, Any]] = []
 
         if data_result is not None:
             aggregated_factors.extend(data_result.risk_factors)
             aggregated_tools.extend(data_result.tools_invoked)
+            rag_policies.extend(data_result.rag_policies)
+
+        if supplementary_retrievals:
+            for item in supplementary_retrievals:
+                t_inv = item.get("tool_invoked")
+                if t_inv and t_inv not in aggregated_tools:
+                    aggregated_tools.append(str(t_inv))
+                for pol in item.get("retrieved_policies") or []:
+                    rag_policies.append(pol)
 
         if analysis_result is not None:
             aggregated_factors.extend(analysis_result.risk_factors)
@@ -54,9 +82,10 @@ class DecisionAgent:
         llm_notes: str | None = None
         if use_llm:
             try:
+                resolved_model = self._get_resolved_model()
                 llm = ChatOllama(
                     base_url=self.ollama_base_url,
-                    model=self.model_name,
+                    model=resolved_model,
                     temperature=0.0,
                 )
                 factors_desc = (
@@ -66,6 +95,18 @@ class DecisionAgent:
                     )
                     or "No elevated risk factors detected."
                 )
+                policies_desc = (
+                    "; ".join(
+                        f"[{p.get('clause_id', 'N/A')}] {p.get('title', '')}"
+                        for p in rag_policies[:3]
+                    )
+                    or "Standard taxonomy rules."
+                )
+                critique_prompt = (
+                    f" Evaluator remediation feedback to apply: {evaluator_feedback}."
+                    if evaluator_feedback
+                    else ""
+                )
                 messages = [
                     SystemMessage(content=DECISION_AGENT_SYSTEM_PROMPT),
                     HumanMessage(
@@ -74,6 +115,7 @@ class DecisionAgent:
                             f"(${transaction.amount:,.2f} {transaction.currency}). "
                             f"Account history: {data_result.account_history if data_result else {}}. "
                             f"Risk factors: {factors_desc}. "
+                            f"Applicable RAG Policies: {policies_desc}.{critique_prompt} "
                             "Provide a concise 1-sentence justification for the decision."
                         )
                     ),
@@ -89,4 +131,6 @@ class DecisionAgent:
             risk_factors=aggregated_factors,
             tools_invoked=aggregated_tools,
             llm_reasoning_notes=llm_notes,
+            rag_policies=rag_policies,
+            evaluator_feedback=evaluator_feedback,
         )

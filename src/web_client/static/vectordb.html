@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vector DB (ChromaDB) — Transaction Fraud Scorer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-top-bar">
+      <div class="header-brand">
+        <h1>Transaction Fraud Scorer</h1>
+        <p class="subtitle">Page 6: ChromaDB Vector Database — Semantic Policy Search, Top-K Filter &amp; Document Upload</p>
+      </div>
+
+      <nav class="app-nav" aria-label="Primary Navigation">
+        <a href="index.html" class="nav-link">1. Submit Transaction</a>
+        <a href="queue.html" class="nav-link">2. Decision Queue (WebSocket)</a>
+        <a href="users.html" class="nav-link">3. User Profiles (RDBMS)</a>
+        <a href="transactions.html" class="nav-link">4. Transactions (RDBMS)</a>
+        <a href="scores.html" class="nav-link">5. Transaction Scores (RDBMS)</a>
+        <a href="vectordb.html" class="nav-link active" aria-current="page">6. Vector DB (ChromaDB)</a>
+      </nav>
+    </div>
+
+    <section class="gateway-config-bar" aria-label="API Gateway Configuration">
+      <div class="field config-url-field">
+        <label for="gateway-url">API Gateway Base URL</label>
+        <span id="gateway-url-hint" class="hint">Format: http://localhost:8000 or https://*.trycloudflare.com</span>
+        <input
+          type="url"
+          id="gateway-url"
+          name="gateway_url"
+          required
+          value="http://localhost:8000"
+          placeholder="https://your-tunnel.trycloudflare.com"
+          autocorrect="off"
+          autocapitalize="off"
+          spellcheck="false"
+          aria-describedby="gateway-url-hint"
+          aria-errormessage="gateway-url-error"
+        >
+        <div id="gateway-url-error" class="error-msg">
+          <span aria-hidden="true">❌</span> Please enter a valid http:// or https:// Gateway URL.
+        </div>
+      </div>
+
+      <div class="config-actions">
+        <button type="button" id="btn-refresh-vector-stats" class="btn btn-primary">Refresh Stats</button>
+        <button type="button" id="btn-check-health" class="btn btn-outline">Check Health</button>
+      </div>
+
+      <div class="status-indicators">
+        <div class="status-pill">
+          <span class="status-label">Vector Query Endpoint:</span>
+          <code id="derived-vector-url">http://localhost:8000/api/v1/vector/query</code>
+        </div>
+        <div id="health-status-text" class="health-status-text" aria-live="polite"></div>
+      </div>
+    </section>
+  </header>
+
+  <main class="single-page-container">
+    <!-- 1. Collection Stats Banner -->
+    <section class="panel" aria-labelledby="vector-stats-heading">
+      <div class="panel-header">
+        <h2 id="vector-stats-heading">ChromaDB Collection Telemetry (<code>fraud_policies</code>)</h2>
+        <span id="vector-collection-badge" class="badge badge-neutral">Loading stats...</span>
+      </div>
+
+      <div class="vector-stats-grid" id="vector-stats-container">
+        <div class="vector-stat-card">
+          <span class="vector-stat-label">Collection Name</span>
+          <strong id="stat-collection-name" class="vector-stat-value">fraud_policies</strong>
+        </div>
+        <div class="vector-stat-card">
+          <span class="vector-stat-label">Total Ingested Chunks</span>
+          <strong id="stat-total-chunks" class="vector-stat-value">—</strong>
+        </div>
+        <div class="vector-stat-card">
+          <span class="vector-stat-label">2025 Policy Chunks</span>
+          <strong id="stat-chunks-2025" class="vector-stat-value">—</strong>
+        </div>
+        <div class="vector-stat-card">
+          <span class="vector-stat-label">2026 Policy Chunks</span>
+          <strong id="stat-chunks-2026" class="vector-stat-value">—</strong>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. Query & Results Split Layout -->
+    <div class="vector-workspace-grid">
+      <!-- Left Column: Query Form & Controls -->
+      <section class="panel" aria-labelledby="vector-query-heading">
+        <div class="panel-header">
+          <h2 id="vector-query-heading">Semantic Policy Search (<code>POST /api/v1/vector/query</code>)</h2>
+        </div>
+
+        <div class="preset-bar" role="group" aria-label="Preset Policy Queries">
+          <span class="preset-label">Sample Queries:</span>
+          <button type="button" class="btn btn-sm btn-secondary btn-vector-preset" data-query="Cryptocurrency exchange purchase over $3000 MCC 6051">
+            Crypto &gt; $3,000 (MCC 6051)
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary btn-vector-preset" data-query="Online casino sports betting over $2500 MCC 7995">
+            Casino &gt; $2,500 (MCC 7995)
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary btn-vector-preset" data-query="Cross-border digital goods game purchase over $1000 MCC 5816">
+            Digital Goods &gt; $1,000 (MCC 5816)
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary btn-vector-preset" data-query="Rapid velocity burst of 3 transactions in 60 minutes">
+            Velocity Burst (60m)
+          </button>
+          <button type="button" class="btn btn-sm btn-secondary btn-vector-preset" data-query="Impossible travel speed over 850 km/h across countries">
+            Impossible Travel
+          </button>
+        </div>
+
+        <form id="vector-query-form" action="/api/v1/vector/query" method="POST" novalidate>
+          <fieldset class="fieldset-box">
+            <legend>Query Parameters &amp; Filters</legend>
+
+            <div class="field">
+              <label for="vector-query-input">Semantic Search Query (Required)</label>
+              <span id="vector-query-hint" class="hint">Describe a transaction scenario, MCC code, or risk pattern to retrieve grounding clauses</span>
+              <input
+                type="text"
+                id="vector-query-input"
+                name="query"
+                required
+                minlength="2"
+                value="Cryptocurrency exchange purchase over $3000 MCC 6051"
+                placeholder="e.g., Wire transfer over $2000 from unrecognized device..."
+                aria-describedby="vector-query-hint"
+                aria-errormessage="vector-query-error"
+              >
+              <div id="vector-query-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Please enter a search query (at least 2 characters).
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field">
+                <label for="vector-top-k">Top K Results (<code>1 – 25</code>)</label>
+                <span id="vector-top-k-hint" class="hint">Number of nearest-neighbor chunks to retrieve</span>
+                <input
+                  type="number"
+                  id="vector-top-k"
+                  name="top_k"
+                  min="1"
+                  max="25"
+                  step="1"
+                  required
+                  value="3"
+                  inputmode="numeric"
+                  aria-describedby="vector-top-k-hint"
+                  aria-errormessage="vector-top-k-error"
+                >
+                <div id="vector-top-k-error" class="error-msg">
+                  <span aria-hidden="true">❌</span> Top K must be between 1 and 25.
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="vector-category-filter">Policy Category Filter</label>
+                <span id="vector-category-hint" class="hint">Filter by risk rule domain</span>
+                <select id="vector-category-filter" name="category" aria-describedby="vector-category-hint">
+                  <option value="">All Categories</option>
+                  <option value="MCC_RULES">MCC_RULES (Merchant Category Caps)</option>
+                  <option value="VELOCITY">VELOCITY (Burst &amp; 24h Volume)</option>
+                  <option value="GEOLOCATION">GEOLOCATION (Corridor &amp; Travel Speed)</option>
+                  <option value="AMOUNT_ANOMALY">AMOUNT_ANOMALY (Historical Multiplier)</option>
+                  <option value="DEVICE_SECURITY">DEVICE_SECURITY (PCI-DSS &amp; Device ID)</option>
+                  <option value="TAXONOMY">TAXONOMY (Global Score Thresholds)</option>
+                  <option value="COMPLIANCE">COMPLIANCE (Adverse Action Rules)</option>
+                  <option value="CUSTOM">CUSTOM (User Uploaded Policies)</option>
+                </select>
+              </div>
+            </div>
+
+            <fieldset class="radio-group-fieldset">
+              <legend>Policy Year Filter (YoY Comparison)</legend>
+              <div class="radio-options-row">
+                <label class="radio-option-label">
+                  <input type="radio" name="policy_year" value="" checked>
+                  <span>All Years (Compare 2025 &amp; 2026)</span>
+                </label>
+                <label class="radio-option-label">
+                  <input type="radio" name="policy_year" value="2025">
+                  <span>2025 Policy Only</span>
+                </label>
+                <label class="radio-option-label">
+                  <input type="radio" name="policy_year" value="2026">
+                  <span>2026 Policy Only</span>
+                </label>
+              </div>
+            </fieldset>
+          </fieldset>
+
+          <div class="form-actions">
+            <button type="submit" id="btn-submit-vector-query" class="btn btn-primary btn-lg">
+              Run Semantic Query
+            </button>
+          </div>
+        </form>
+
+        <!-- Results List -->
+        <section class="response-section" aria-labelledby="vector-results-heading">
+          <div class="panel-header">
+            <h3 id="vector-results-heading">Retrieved Policy Chunks</h3>
+            <span id="vector-results-summary" class="badge badge-neutral" aria-live="polite">Ready</span>
+          </div>
+          <div id="vector-results-container" class="vector-results-list" aria-live="polite">
+            <p class="empty-cell">Click "Run Semantic Query" to search ChromaDB.</p>
+          </div>
+        </section>
+      </section>
+
+      <!-- Right Column: Upload New Policy Document -->
+      <section class="panel" aria-labelledby="vector-upload-heading">
+        <div class="panel-header">
+          <h2 id="vector-upload-heading">Upload New Policy Document (<code>POST /api/v1/vector/documents</code>)</h2>
+        </div>
+
+        <form id="vector-upload-form" action="/api/v1/vector/documents" method="POST" novalidate>
+          <fieldset class="fieldset-box">
+            <legend>Document Metadata &amp; Content</legend>
+
+            <div class="field">
+              <label for="vector-upload-file">Load from Local Markdown / Text File (Optional)</label>
+              <span id="vector-file-hint" class="hint">Select a <code>.md</code> or <code>.txt</code> file to populate the editor below</span>
+              <input
+                type="file"
+                id="vector-upload-file"
+                name="policy_file"
+                accept=".md,.txt,.markdown"
+                aria-describedby="vector-file-hint"
+              >
+            </div>
+
+            <div class="form-row">
+              <div class="field">
+                <label for="vector-upload-title">Policy Clause Title</label>
+                <span id="vector-title-hint" class="hint">Human-readable rule heading</span>
+                <input
+                  type="text"
+                  id="vector-upload-title"
+                  name="title"
+                  placeholder="e.g., High-Risk Luxury Goods Step-Up"
+                  aria-describedby="vector-title-hint"
+                >
+              </div>
+
+              <div class="field">
+                <label for="vector-upload-clause-id">Clause Identifier</label>
+                <span id="vector-clause-hint" class="hint">Format: POL-YYYY-CAT-NN (auto-generated if blank)</span>
+                <input
+                  type="text"
+                  id="vector-upload-clause-id"
+                  name="clause_id"
+                  placeholder="POL-2026-MCC-5944"
+                  autocorrect="off"
+                  autocapitalize="off"
+                  spellcheck="false"
+                  aria-describedby="vector-clause-hint"
+                >
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field">
+                <label for="vector-upload-year">Policy Year</label>
+                <span id="vector-year-hint" class="hint">Target effective year for metadata filtering</span>
+                <input
+                  type="text"
+                  id="vector-upload-year"
+                  name="policy_year"
+                  required
+                  pattern="20[2-9][0-9]"
+                  value="2026"
+                  inputmode="numeric"
+                  autocorrect="off"
+                  spellcheck="false"
+                  aria-describedby="vector-year-hint"
+                  aria-errormessage="vector-year-error"
+                >
+                <div id="vector-year-error" class="error-msg">
+                  <span aria-hidden="true">❌</span> Please enter a 4-digit year (e.g., 2025 or 2026).
+                </div>
+              </div>
+
+              <div class="field">
+                <label for="vector-upload-category">Policy Category</label>
+                <span id="vector-upload-cat-hint" class="hint">Classification tag in ChromaDB</span>
+                <select id="vector-upload-category" name="category" aria-describedby="vector-upload-cat-hint">
+                  <option value="CUSTOM" selected>CUSTOM</option>
+                  <option value="MCC_RULES">MCC_RULES</option>
+                  <option value="VELOCITY">VELOCITY</option>
+                  <option value="GEOLOCATION">GEOLOCATION</option>
+                  <option value="AMOUNT_ANOMALY">AMOUNT_ANOMALY</option>
+                  <option value="DEVICE_SECURITY">DEVICE_SECURITY</option>
+                  <option value="COMPLIANCE">COMPLIANCE</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label for="vector-upload-content">Policy Document / Clause Text (Required)</label>
+              <span id="vector-content-hint" class="hint">Enter plain text rules or full Markdown with <code>#### `[POL-...]`</code> headers</span>
+              <textarea
+                id="vector-upload-content"
+                name="content"
+                rows="7"
+                required
+                minlength="10"
+                placeholder="Enter policy directives, risk thresholds, and mandatory disposition rules..."
+                aria-describedby="vector-content-hint"
+                aria-errormessage="vector-content-error"
+              ></textarea>
+              <div id="vector-content-error" class="error-msg">
+                <span aria-hidden="true">❌</span> Policy content must be at least 10 characters long.
+              </div>
+            </div>
+          </fieldset>
+
+          <div class="form-actions">
+            <button type="submit" id="btn-upload-vector-doc" class="btn btn-primary">
+              Upload &amp; Ingest to ChromaDB
+            </button>
+          </div>
+        </form>
+
+        <section class="response-section" aria-labelledby="vector-upload-status-heading">
+          <h3 id="vector-upload-status-heading">Upload &amp; Ingestion Response</h3>
+          <pre id="vector-upload-output" class="code-output" aria-live="polite">Upload a policy document or custom rule to view ingestion telemetry.</pre>
+        </section>
+      </section>
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

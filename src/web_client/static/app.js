@@ -155,6 +155,10 @@
     if (derivedScoresUrl) {
       derivedScoresUrl.textContent = `${baseUrl}/api/v1/db/transaction-scores`;
     }
+    const derivedVectorUrl = document.getElementById("derived-vector-url");
+    if (derivedVectorUrl) {
+      derivedVectorUrl.textContent = `${baseUrl}/api/v1/vector/query`;
+    }
   }
 
   // 3. WebSocket Connection Management (Page 2: queue.html)
@@ -1400,6 +1404,270 @@
     loadScoresPage();
   }
 
+  // 9b. Vector DB (ChromaDB) Page (Page 6: vectordb.html)
+  function initVectorDbPage() {
+    const vectorQueryForm = document.getElementById("vector-query-form");
+    if (!vectorQueryForm) return;
+
+    const queryInput = document.getElementById("vector-query-input");
+    const topKSelect = document.getElementById("vector-top-k");
+    const categorySelect = document.getElementById("vector-category-filter");
+    const resultsContainer = document.getElementById("vector-results-container");
+    const resultsCountBadge = document.getElementById("vector-results-summary");
+    const btnRefreshStats = document.getElementById("btn-refresh-vector-stats");
+
+    const statCollectionName = document.getElementById("stat-collection-name");
+    const statTotalChunks = document.getElementById("stat-total-chunks");
+    const statChunks2025 = document.getElementById("stat-chunks-2025");
+    const statChunks2026 = document.getElementById("stat-chunks-2026");
+    const collectionBadge = document.getElementById("vector-collection-badge");
+
+    const uploadForm = document.getElementById("vector-upload-form");
+    const uploadFileInput = document.getElementById("vector-upload-file");
+    const uploadTitleInput = document.getElementById("vector-upload-title");
+    const uploadClauseInput = document.getElementById("vector-upload-clause-id");
+    const uploadYearInput = document.getElementById("vector-upload-year");
+    const uploadCategorySelect = document.getElementById("vector-upload-category");
+    const uploadContentTextarea = document.getElementById("vector-upload-content");
+    const uploadOutputPre = document.getElementById("vector-upload-output");
+
+    async function loadVectorStats() {
+      const baseUrl = getNormalizedBaseUrl();
+      try {
+        const resp = await fetch(`${baseUrl}/api/v1/vector/stats`);
+        if (!resp.ok) {
+          throw new Error(`HTTP ${resp.status}`);
+        }
+        const stats = await resp.json();
+        const totalDocs = stats.total_documents ?? stats.total_chunks ?? 0;
+        const byYear = stats.chunks_per_year || stats.by_policy_year || {};
+        if (statCollectionName) statCollectionName.textContent = stats.collection_name || "fraud_policies";
+        if (statTotalChunks) statTotalChunks.textContent = String(totalDocs);
+        if (statChunks2025) statChunks2025.textContent = String(byYear["2025"] ?? 0);
+        if (statChunks2026) statChunks2026.textContent = String(byYear["2026"] ?? 0);
+        if (collectionBadge) {
+          collectionBadge.textContent = `${stats.collection_name} (${totalDocs} chunks)`;
+          collectionBadge.className = "badge badge-success";
+        }
+      } catch (err) {
+        if (collectionBadge) {
+          collectionBadge.textContent = `Stats Error: ${err.message}`;
+          collectionBadge.className = "badge badge-danger";
+        }
+      }
+    }
+
+    function renderVectorResults(data) {
+      if (!resultsContainer) return;
+      resultsContainer.innerHTML = "";
+
+      const items = (data && data.results) || [];
+      if (resultsCountBadge) {
+        resultsCountBadge.textContent = `${items.length} result${items.length === 1 ? "" : "s"}`;
+        resultsCountBadge.className = items.length > 0 ? "badge badge-success" : "badge badge-neutral";
+      }
+
+      if (items.length === 0) {
+        const emptyP = document.createElement("p");
+        emptyP.className = "empty-cell";
+        emptyP.textContent = "No matching policy clauses found for the selected query and metadata filters.";
+        resultsContainer.appendChild(emptyP);
+        return;
+      }
+
+      for (const [idx, item] of items.entries()) {
+        const meta = item.metadata || {};
+        const card = document.createElement("article");
+        card.className = "vector-result-card";
+
+        const header = document.createElement("div");
+        header.className = "vector-result-header";
+
+        const titleEl = document.createElement("h3");
+        titleEl.className = "vector-result-title";
+        titleEl.textContent = `${idx + 1}. ${item.title || meta.title || item.id}`;
+
+        const badgesWrap = document.createElement("div");
+        badgesWrap.className = "vector-result-badges";
+
+        const simVal = typeof item.similarity_score === "number" ? item.similarity_score : (item.similarity || 0);
+        const simPct = (simVal * 100).toFixed(1);
+        const simBadge = document.createElement("span");
+        simBadge.className = simVal >= 0.5 ? "badge badge-success" : "badge badge-warning";
+        simBadge.textContent = `Similarity: ${simPct}% (dist ${Number(item.distance || 0).toFixed(3)})`;
+
+        const yearBadge = document.createElement("span");
+        const yearVal = String(item.policy_year || meta.policy_year || "N/A");
+        yearBadge.className = yearVal === "2026" ? "badge badge-success" : "badge badge-neutral";
+        yearBadge.textContent = `Year: ${yearVal}`;
+
+        const clauseBadge = document.createElement("span");
+        clauseBadge.className = "badge badge-neutral";
+        clauseBadge.textContent = item.clause_id || meta.clause_id || item.id;
+
+        const catBadge = document.createElement("span");
+        catBadge.className = "badge badge-neutral";
+        catBadge.textContent = item.category || meta.category || "GENERAL";
+
+        badgesWrap.append(yearBadge, clauseBadge, catBadge, simBadge);
+        header.append(titleEl, badgesWrap);
+
+        const docPre = document.createElement("pre");
+        docPre.className = "vector-result-text";
+        docPre.textContent = item.text || item.document || "";
+
+        const metaDetails = document.createElement("details");
+        metaDetails.className = "vector-result-meta";
+        const metaSummary = document.createElement("summary");
+        metaSummary.textContent = `Chunk ID: ${item.id} — View Full Metadata JSON`;
+        const metaCode = document.createElement("pre");
+        metaCode.className = "code-output";
+        metaCode.textContent = JSON.stringify(meta, null, 2);
+        metaDetails.append(metaSummary, metaCode);
+
+        card.append(header, docPre, metaDetails);
+        resultsContainer.appendChild(card);
+      }
+    }
+
+    async function executeVectorQuery() {
+      if (!vectorQueryForm.checkValidity()) {
+        const firstInvalid = vectorQueryForm.querySelector(":invalid");
+        if (firstInvalid) firstInvalid.focus();
+        return;
+      }
+
+      const baseUrl = getNormalizedBaseUrl();
+      const queryText = (queryInput ? queryInput.value : "").trim();
+      const topK = parseInt(topKSelect ? topKSelect.value : "4", 10) || 4;
+      const selectedYearRadio = vectorQueryForm.querySelector('input[name="policy_year"]:checked');
+      const policyYearVal = selectedYearRadio && selectedYearRadio.value ? selectedYearRadio.value : null;
+      const categoryVal = categorySelect && categorySelect.value ? categorySelect.value : null;
+
+      const payload = {
+        query: queryText,
+        top_k: topK,
+        policy_year: policyYearVal,
+        category: categoryVal,
+      };
+
+      if (resultsCountBadge) {
+        resultsCountBadge.textContent = "Querying...";
+        resultsCountBadge.className = "badge badge-warning";
+      }
+
+      try {
+        const resp = await fetch(`${baseUrl}/api/v1/vector/query`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+          throw new Error(data.detail || `HTTP ${resp.status}`);
+        }
+        renderVectorResults(data);
+      } catch (err) {
+        if (resultsCountBadge) {
+          resultsCountBadge.textContent = "Query Error";
+          resultsCountBadge.className = "badge badge-danger";
+        }
+        if (resultsContainer) {
+          resultsContainer.innerHTML = "";
+          const errP = document.createElement("p");
+          errP.className = "empty-cell";
+          errP.textContent = `Error querying ChromaDB: ${err.message}`;
+          resultsContainer.appendChild(errP);
+        }
+      }
+    }
+
+    vectorQueryForm.addEventListener("submit", (e) => {
+      e.preventDefault();
+      executeVectorQuery();
+    });
+
+    const presetButtons = document.querySelectorAll(".btn-vector-preset");
+    for (const btn of presetButtons) {
+      btn.addEventListener("click", () => {
+        const presetQuery = btn.getAttribute("data-query");
+        if (presetQuery && queryInput) {
+          queryInput.value = presetQuery;
+          executeVectorQuery();
+        }
+      });
+    }
+
+    if (btnRefreshStats) {
+      btnRefreshStats.addEventListener("click", loadVectorStats);
+    }
+
+    if (uploadFileInput) {
+      uploadFileInput.addEventListener("change", () => {
+        const file = uploadFileInput.files && uploadFileInput.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+          if (uploadContentTextarea && typeof reader.result === "string") {
+            uploadContentTextarea.value = reader.result;
+          }
+          if (uploadTitleInput && !uploadTitleInput.value.trim()) {
+            uploadTitleInput.value = file.name.replace(/\.(md|txt)$/i, "");
+          }
+        });
+        reader.readAsText(file);
+      });
+    }
+
+    if (uploadForm) {
+      uploadForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        if (!uploadForm.checkValidity()) {
+          const firstInvalid = uploadForm.querySelector(":invalid");
+          if (firstInvalid) firstInvalid.focus();
+          return;
+        }
+
+        const baseUrl = getNormalizedBaseUrl();
+        const file = uploadFileInput && uploadFileInput.files && uploadFileInput.files[0];
+        const payload = {
+          content: (uploadContentTextarea ? uploadContentTextarea.value : "").trim(),
+          title: (uploadTitleInput ? uploadTitleInput.value : "").trim() || "Custom Policy Clause",
+          clause_id: (uploadClauseInput && uploadClauseInput.value.trim()) || null,
+          policy_year: (uploadYearInput ? uploadYearInput.value : "2026").trim() || "2026",
+          category: (uploadCategorySelect ? uploadCategorySelect.value : "GENERAL") || "GENERAL",
+          filename: file ? file.name : null,
+        };
+
+        if (uploadOutputPre) {
+          uploadOutputPre.textContent = "Uploading and embedding policy document into ChromaDB...";
+        }
+
+        try {
+          const resp = await fetch(`${baseUrl}/api/v1/vector/documents`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          const data = await resp.json();
+          if (uploadOutputPre) {
+            uploadOutputPre.textContent = JSON.stringify(data, null, 2);
+          }
+          if (resp.ok) {
+            await loadVectorStats();
+          }
+        } catch (err) {
+          if (uploadOutputPre) {
+            uploadOutputPre.textContent = JSON.stringify({ error: err.message }, null, 2);
+          }
+        }
+      });
+    }
+
+    loadVectorStats();
+    executeVectorQuery();
+  }
+
   // 10. Initialize Event Listeners & Defaults
   function init() {
     UserInvalidFallback.init(document);
@@ -1499,10 +1767,11 @@
       connectWebSocket();
     }
 
-    // Initialize RDBMS table pages if active
+    // Initialize RDBMS table pages & Vector DB page if active
     initUsersTablePage();
     initTransactionsTablePage();
     initScoresTablePage();
+    initVectorDbPage();
   }
 
   if (document.readyState === "loading") {

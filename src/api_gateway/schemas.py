@@ -608,3 +608,80 @@ class DeleteRecordResponse(BaseModel):
     deleted: bool
     id: str
     message: str
+
+
+# =============================================================================
+# ChromaDB Vector Database Schemas (PRD-016)
+# =============================================================================
+
+
+class VectorQueryRequest(BaseModel):
+    """Request payload for POST /api/v1/vector/query."""
+
+    query: str = Field(..., min_length=1, description="Semantic search query string")
+    top_k: int = Field(default=3, ge=1, le=25, description="Maximum number of top matching chunks to return")
+    policy_year: str | None = Field(default=None, description="Optional filter by policy year (e.g. '2025' or '2026')")
+    category: str | None = Field(default=None, description="Optional filter by category (e.g. 'MCC_RULES', 'VELOCITY')")
+
+
+class VectorQueryResultItem(BaseModel):
+    """Individual policy clause chunk returned from ChromaDB."""
+
+    id: str
+    clause_id: str = "N/A"
+    policy_year: str = "N/A"
+    category: str = "N/A"
+    title: str = "N/A"
+    text: str
+    distance: float = 0.0
+    similarity_score: float = 1.0
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class VectorQueryResponse(BaseModel):
+    """Response payload for POST /api/v1/vector/query."""
+
+    query: str
+    top_k: int
+    policy_year: str | None = None
+    category: str | None = None
+    total_results: int
+    results: list[VectorQueryResultItem] = Field(default_factory=list)
+
+
+class VectorDocumentUploadRequest(BaseModel):
+    """Request payload for POST /api/v1/vector/documents."""
+
+    content: str = Field(..., min_length=10, description="Markdown or plain text policy document content")
+    title: str | None = Field(default=None, description="Optional document title or clause heading")
+    clause_id: str | None = Field(default=None, description="Optional custom clause ID (e.g. 'POL-2026-CUSTOM-01')")
+    policy_year: str = Field(default="2026", description="Policy year associated with the document")
+    category: str = Field(default="CUSTOM", description="Policy rule category")
+    filename: str = Field(default="uploaded-policy.md", description="Logical source filename")
+
+
+class VectorDocumentUploadResponse(BaseModel):
+    """Response payload for POST /api/v1/vector/documents."""
+
+    status: Literal["SUCCESS", "FAILURE"]
+    message: str
+    chunks_ingested: int
+    collection_count: int
+    ingested_ids: list[str] = Field(default_factory=list)
+
+
+class VectorDocumentsListResponse(BaseModel):
+    """Response payload for GET /api/v1/vector/documents."""
+
+    collection_name: str
+    total_returned: int
+    items: list[VectorQueryResultItem] = Field(default_factory=list)
+
+
+class VectorStatsResponse(BaseModel):
+    """Response payload for GET /api/v1/vector/stats."""
+
+    collection_name: str
+    total_documents: int
+    chunks_per_year: dict[str, int] = Field(default_factory=dict)
+    categories: list[str] = Field(default_factory=list)

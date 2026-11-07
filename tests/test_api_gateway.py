@@ -399,3 +399,77 @@ def test_end_to_end_gateway_fraud_scorer_db_and_feedback(tmp_path: Path) -> None
     assert score_record["approval_status"] == "REJECTED"
     assert score_record["decision_accepted"] is False
     assert score_record["decision_reason"] == "Confirmed impossible travel and high-risk MCC via WebClient."
+
+
+def test_vector_db_gateway_endpoints(tmp_path: Path) -> None:
+    """Verify PRD-016 ChromaDB API Gateway endpoints: stats, query (top_k, year, category), and document upload."""
+    db_file = tmp_path / "vector_gateway.db"
+    chroma_dir = tmp_path / "chroma_store"
+    client = TestClient(create_app(db_path=db_file, chroma_dir=chroma_dir))
+
+    # 1. GET /api/v1/vector/stats should auto-seed 26 policy chunks (13 for 2025, 13 for 2026)
+    stats_resp = client.get("/api/v1/vector/stats")
+    assert stats_resp.status_code == 200
+    stats_data = stats_resp.json()
+    assert stats_data["collection_name"] == "fraud_policies"
+    assert stats_data["total_documents"] == 26
+    assert stats_data["chunks_per_year"]["2025"] == 13
+    assert stats_data["chunks_per_year"]["2026"] == 13
+
+    # 2. POST /api/v1/vector/query with top_k and policy_year filter
+    q2025_resp = client.post(
+        "/api/v1/vector/query",
+        json={
+            "query": "cryptocurrency exchange MCC 6051 transaction over $3000",
+            "top_k": 2,
+            "policy_year": "2025",
+        },
+    )
+    assert q2025_resp.status_code == 200
+    q2025_data = q2025_resp.json()
+    assert q2025_data["top_k"] == 2
+    assert q2025_data["total_results"] == 2
+    assert all(item["policy_year"] == "2025" for item in q2025_data["results"])
+    assert q2025_data["results"][0]["clause_id"].startswith("POL-2025-")
+
+    q2026_resp = client.post(
+        "/api/v1/vector/query",
+        json={
+            "query": "cryptocurrency exchange MCC 6051 transaction over $3000",
+            "top_k": 2,
+            "policy_year": "2026",
+            "category": "MCC_RULES",
+        },
+    )
+    assert q2026_resp.status_code == 200
+    q2026_data = q2026_resp.json()
+    assert q2026_data["total_results"] >= 1
+    assert all(item["policy_year"] == "2026" for item in q2026_data["results"])
+    assert all(item["category"] == "MCC_RULES" for item in q2026_data["results"])
+
+    # 3. POST /api/v1/vector/documents to upload a new custom policy rule
+    upload_resp = client.post(
+        "/api/v1/vector/documents",
+        json={
+            "content": "Transactions originating from satellite VPN relays over $1,500 require mandatory step-up biometric verification.",
+            "title": "Satellite VPN Relay Step-Up Rule",
+            "clause_id": "POL-2026-VPN-01",
+            "policy_year": "2026",
+            "category": "DEVICE_SECURITY",
+            "filename": "custom-vpn-policy-2026.md",
+        },
+    )
+    assert upload_resp.status_code == 201
+    upload_data = upload_resp.json()
+    assert upload_data["status"] == "SUCCESS"
+    assert upload_data["chunks_ingested"] == 1
+    assert upload_data["ingested_ids"] == ["pol_2026_pol_2026_vpn_01"]
+    assert upload_data["collection_count"] == 27
+
+    # 4. GET /api/v1/vector/documents filtered by policy_year
+    list_docs_resp = client.get("/api/v1/vector/documents?policy_year=2026&limit=20")
+    assert list_docs_resp.status_code == 200
+    list_docs_data = list_docs_resp.json()
+    returned_clauses = {item["clause_id"] for item in list_docs_data["items"]}
+    assert "POL-2026-VPN-01" in returned_clauses
+
