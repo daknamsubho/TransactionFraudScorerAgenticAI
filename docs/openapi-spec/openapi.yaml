@@ -29,6 +29,8 @@ tags:
     description: Real-time WebSocket event stream for web clients and analyst dashboards.
   - name: Database
     description: RDBMS CRUD and paginated query endpoints for user_profiles, transactions, and transaction_scores.
+  - name: VectorDB
+    description: ChromaDB vector database operations for RAG policy retrieval, Top-K querying, and document ingestion.
 
 paths:
   /api/v1/transactions/score:
@@ -666,6 +668,106 @@ paths:
                 $ref: '#/components/schemas/DeleteRecordResponse'
         '404':
           description: Transaction score not found.
+
+  # ---------------------------------------------------------------------------
+  # ChromaDB Vector Database (RAG Policy Retrieval & Document Ingestion)
+  # ---------------------------------------------------------------------------
+  /api/v1/vector/query:
+    post:
+      tags:
+        - VectorDB
+      summary: Query ChromaDB vector database for relevant fraud policy clauses
+      description: |
+        Performs semantic similarity search against the `fraud_policies` ChromaDB collection.
+        Supports top-K results filtering (`top_k`), optional `policy_year` filtering (`"2025"` or `"2026"`), and `category` filtering.
+      operationId: queryVectorDatabase
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VectorQueryRequest'
+            examples:
+              cryptoQuery:
+                summary: Query 2026 policy for cryptocurrency purchases
+                value:
+                  query: "Cryptocurrency exchange purchase over $3000 MCC 6051"
+                  top_k: 3
+                  policy_year: "2026"
+      responses:
+        '200':
+          description: Semantic search results from ChromaDB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VectorQueryResponse'
+        '422':
+          description: Validation error.
+
+  /api/v1/vector/documents:
+    get:
+      tags:
+        - VectorDB
+      summary: List ingested policy document chunks in ChromaDB
+      operationId: listVectorDocuments
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 200
+        - name: policy_year
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional filter by policy year (e.g. "2025" or "2026").
+      responses:
+        '200':
+          description: List of ingested vector document chunks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VectorDocumentsListResponse'
+    post:
+      tags:
+        - VectorDB
+      summary: Upload and ingest new policy document(s) into ChromaDB
+      description: |
+        Accepts markdown policy text (either structured with `#### \`[POL-...]\`` headers or free-form policy text) and indexes it into the ChromaDB `fraud_policies` collection.
+      operationId: uploadVectorDocument
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/VectorDocumentUploadRequest'
+      responses:
+        '201':
+          description: Document successfully chunked and ingested into ChromaDB.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VectorDocumentUploadResponse'
+        '422':
+          description: Validation error.
+
+  /api/v1/vector/stats:
+    get:
+      tags:
+        - VectorDB
+      summary: Get ChromaDB collection statistics and document counts
+      operationId: getVectorStats
+      responses:
+        '200':
+          description: Vector database collection telemetry and counts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VectorStatsResponse'
 
 components:
   schemas:
@@ -1737,3 +1839,188 @@ components:
           type: string
         message:
           type: string
+
+    VectorQueryRequest:
+      type: object
+      required:
+        - query
+      properties:
+        query:
+          type: string
+          minLength: 1
+          description: Semantic search query string.
+          example: "Cryptocurrency exchange purchase over $3000 MCC 6051"
+        top_k:
+          type: integer
+          minimum: 1
+          maximum: 25
+          default: 3
+          description: Maximum number of top matching chunks to return (Top K).
+        policy_year:
+          type:
+            - string
+            - "null"
+          default: null
+          description: Optional filter by policy year (e.g., "2025" or "2026").
+        category:
+          type:
+            - string
+            - "null"
+          default: null
+          description: Optional filter by category (e.g., "MCC_RULES", "VELOCITY", "GEOLOCATION").
+
+    VectorQueryResultItem:
+      type: object
+      required:
+        - id
+        - clause_id
+        - policy_year
+        - category
+        - title
+        - text
+        - distance
+        - similarity_score
+        - metadata
+      properties:
+        id:
+          type: string
+        clause_id:
+          type: string
+        policy_year:
+          type: string
+        category:
+          type: string
+        title:
+          type: string
+        text:
+          type: string
+        distance:
+          type: number
+          format: double
+        similarity_score:
+          type: number
+          format: double
+        metadata:
+          type: object
+          additionalProperties: true
+
+    VectorQueryResponse:
+      type: object
+      required:
+        - query
+        - top_k
+        - total_results
+        - results
+      properties:
+        query:
+          type: string
+        top_k:
+          type: integer
+        policy_year:
+          type:
+            - string
+            - "null"
+        category:
+          type:
+            - string
+            - "null"
+        total_results:
+          type: integer
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/VectorQueryResultItem'
+
+    VectorDocumentUploadRequest:
+      type: object
+      required:
+        - content
+      properties:
+        content:
+          type: string
+          minLength: 10
+          description: Markdown or plain text policy document content.
+        title:
+          type:
+            - string
+            - "null"
+          default: null
+          description: Optional document title or clause heading.
+        clause_id:
+          type:
+            - string
+            - "null"
+          default: null
+          description: Optional custom clause identifier (e.g., "POL-2026-CUSTOM-01").
+        policy_year:
+          type: string
+          default: "2026"
+          description: Policy year associated with the document.
+        category:
+          type: string
+          default: "CUSTOM"
+          description: Policy rule category.
+        filename:
+          type: string
+          default: "uploaded-policy.md"
+
+    VectorDocumentUploadResponse:
+      type: object
+      required:
+        - status
+        - message
+        - chunks_ingested
+        - collection_count
+      properties:
+        status:
+          type: string
+          enum:
+            - SUCCESS
+            - FAILURE
+        message:
+          type: string
+        chunks_ingested:
+          type: integer
+        collection_count:
+          type: integer
+        ingested_ids:
+          type: array
+          items:
+            type: string
+
+    VectorDocumentsListResponse:
+      type: object
+      required:
+        - collection_name
+        - total_returned
+        - items
+      properties:
+        collection_name:
+          type: string
+        total_returned:
+          type: integer
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/VectorQueryResultItem'
+
+    VectorStatsResponse:
+      type: object
+      required:
+        - collection_name
+        - total_documents
+        - chunks_per_year
+        - categories
+      properties:
+        collection_name:
+          type: string
+        total_documents:
+          type: integer
+        chunks_per_year:
+          type: object
+          additionalProperties:
+            type: integer
+        categories:
+          type: array
+          items:
+            type: string

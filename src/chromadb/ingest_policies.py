@@ -127,6 +127,119 @@ def parse_policy_markdown(file_path: Path) -> list[dict[str, Any]]:
     return chunks
 
 
+def parse_policy_text(
+    content: str,
+    filename: str = "uploaded-policy.md",
+    policy_year: str = "2026",
+    title: str | None = None,
+    clause_id: str | None = None,
+    category: str = "CUSTOM",
+) -> list[dict[str, Any]]:
+    """Parse raw policy text (either structured markdown clauses or single custom rule) into chunks."""
+    import uuid
+
+    chunks: list[dict[str, Any]] = []
+
+    clause_pattern = re.compile(
+        r"####\s+`\[(POL-\d{4}-([A-Z0-9]+)-\d+)\]`\s+([^\n]+)\n([\s\S]*?)(?=(?:####\s+`\[POL-|\Z|###\s+Section|##\s+3\.))"
+    )
+
+    for match in clause_pattern.finditer(content):
+        c_id = match.group(1).strip()
+        raw_cat = match.group(2).strip()
+        c_title = match.group(3).strip()
+        c_body = match.group(4).strip()
+
+        if "MCC" in raw_cat:
+            norm_cat = "MCC_RULES"
+        elif "VEL" in raw_cat:
+            norm_cat = "VELOCITY"
+        elif "GEO" in raw_cat:
+            norm_cat = "GEOLOCATION"
+        elif "AMT" in raw_cat:
+            norm_cat = "AMOUNT_ANOMALY"
+        elif "PCI" in raw_cat or "DEV" in raw_cat:
+            norm_cat = "DEVICE_SECURITY"
+        else:
+            norm_cat = raw_cat
+
+        full_text = f"Policy Clause: [{c_id}] {c_title} ({policy_year})\n{c_body}"
+        chunk_id = f"pol_{policy_year}_{c_id.lower().replace('-', '_')}"
+        chunks.append(
+            {
+                "id": chunk_id,
+                "text": full_text,
+                "metadata": {
+                    "policy_year": str(policy_year),
+                    "clause_id": c_id,
+                    "category": norm_cat,
+                    "title": c_title,
+                    "source_file": filename,
+                },
+            }
+        )
+
+    # If no structured #### `[POL-...]` tags matched, create a single custom chunk
+    if not chunks:
+        short_uid = uuid.uuid4().hex[:6].upper()
+        final_clause_id = clause_id.strip() if clause_id and clause_id.strip() else f"POL-{policy_year}-{category[:4].upper()}-{short_uid}"
+        final_title = title.strip() if title and title.strip() else f"Custom Policy Rule ({final_clause_id})"
+        full_text = f"Policy Clause: [{final_clause_id}] {final_title} ({policy_year})\n{content.strip()}"
+        chunk_id = f"pol_{policy_year}_{final_clause_id.lower().replace('-', '_')}"
+        chunks.append(
+            {
+                "id": chunk_id,
+                "text": full_text,
+                "metadata": {
+                    "policy_year": str(policy_year),
+                    "clause_id": final_clause_id,
+                    "category": category or "CUSTOM",
+                    "title": final_title,
+                    "source_file": filename,
+                },
+            }
+        )
+
+    return chunks
+
+
+def ingest_custom_document(
+    content: str,
+    filename: str = "uploaded-policy.md",
+    policy_year: str = "2026",
+    title: str | None = None,
+    clause_id: str | None = None,
+    category: str = "CUSTOM",
+    collection: Collection | None = None,
+) -> dict[str, Any]:
+    """Parse and upsert a custom uploaded document into the ChromaDB collection."""
+    if collection is None:
+        client = get_chroma_client()
+        collection = get_or_create_policy_collection(client)
+
+    chunks = parse_policy_text(
+        content=content,
+        filename=filename,
+        policy_year=policy_year,
+        title=title,
+        clause_id=clause_id,
+        category=category,
+    )
+
+    ids = [c["id"] for c in chunks]
+    documents = [c["text"] for c in chunks]
+    metadatas = [c["metadata"] for c in chunks]
+
+    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+
+    return {
+        "status": "SUCCESS",
+        "chunks_ingested": len(chunks),
+        "ingested_ids": ids,
+        "collection_count": collection.count(),
+    }
+
+
 def ingest_policy_documents(
     policy_dir: Path | str | None = None,
     collection: Collection | None = None,

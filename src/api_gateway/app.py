@@ -1,9 +1,11 @@
 """FastAPI application implementing the OpenAPI v3 Transaction Fraud Scorer Gateway."""
 
+import importlib.util
 import logging
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -29,6 +31,13 @@ from api_gateway.schemas import (
     UserProfileCreateRequest,
     UserProfileRecord,
     UserProfileUpdateRequest,
+    VectorDocumentsListResponse,
+    VectorDocumentUploadRequest,
+    VectorDocumentUploadResponse,
+    VectorQueryRequest,
+    VectorQueryResponse,
+    VectorQueryResultItem,
+    VectorStatsResponse,
     WebSocketTransactionEvent,
     to_domain_transaction,
 )
@@ -59,12 +68,32 @@ from sqllite import (
 
 logger = logging.getLogger(__name__)
 
+_CHROMADB_MODULE_DIR = Path(__file__).resolve().parents[1] / "chromadb"
+
+
+def _load_chroma_submodule(module_name: str, filename: str) -> Any:
+    """Load a module from src/chromadb/ without colliding with the PyPI chromadb package."""
+    if str(_CHROMADB_MODULE_DIR) not in sys.path:
+        sys.path.insert(0, str(_CHROMADB_MODULE_DIR))
+    spec = importlib.util.spec_from_file_location(module_name, str(_CHROMADB_MODULE_DIR / filename))
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load {filename} from {_CHROMADB_MODULE_DIR}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_chroma_client_mod = _load_chroma_submodule("_fraud_chroma_client", "client.py")
+_chroma_ingest_mod = _load_chroma_submodule("_fraud_chroma_ingest", "ingest_policies.py")
+_chroma_query_mod = _load_chroma_submodule("_fraud_chroma_query", "query_policies.py")
+
 
 def create_app(
     orchestrator: FraudScorerOrchestrator | None = None,
     store: TransactionStore | None = None,
     ws_manager: ConnectionManager | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
+    chroma_dir: str | Path | None = None,
 ) -> FastAPI:
     """Create and configure the FastAPI Gateway application."""
     application = FastAPI(
@@ -73,7 +102,7 @@ def create_app(
         description=(
             "OpenAPI v3 gateway for the Transaction Fraud Scorer Agentic AI. "
             "Ingests user & ACH/Card transactions, streams real-time WebSocket score events, "
-            "records Accept/Reject analyst decisions, and exposes RDBMS CRUD endpoints."
+            "records Accept/Reject analyst decisions, and exposes RDBMS CRUD and ChromaDB Vector endpoints."
         ),
     )
 
@@ -90,12 +119,25 @@ def create_app(
     fraud_orchestrator = orchestrator or FraudScorerOrchestrator(db_path=resolved_db_path)
     tx_store = store or TransactionStore()
     connection_manager = ws_manager or ConnectionManager()
+    resolved_chroma_dir = Path(chroma_dir) if chroma_dir else _chroma_client_mod.DEFAULT_CHROMA_DIR
 
     # Attach state for programmatic access and testing
     application.state.orchestrator = fraud_orchestrator
     application.state.store = tx_store
     application.state.ws_manager = connection_manager
     application.state.db_path = resolved_db_path
+    application.state.chroma_dir = resolved_chroma_dir
+
+    def _get_vector_collection() -> Any:
+        """Return the ChromaDB fraud_policies collection, auto-seeding if empty."""
+        c_client = _chroma_client_mod.get_chroma_client(resolved_chroma_dir)
+        collection = _chroma_client_mod.get_or_create_policy_collection(c_client)
+        if collection.count() == 0 and _chroma_ingest_mod.DEFAULT_POLICY_DIR.exists():
+            _chroma_ingest_mod.ingest_policy_documents(
+                policy_dir=_chroma_ingest_mod.DEFAULT_POLICY_DIR,
+                collection=collection,
+            )
+        return collection
 
     @application.get("/health", tags=["Health"])
     async def health_check() -> dict[str, object]:
@@ -615,6 +657,152 @@ def create_app(
             deleted=True,
             id=transaction_id,
             message=f"TransactionScore for '{transaction_id}' deleted.",
+        )
+
+    # =========================================================================
+    # ChromaDB Vector Database Endpoints (PRD-016)
+    # =========================================================================
+
+    @application.post(
+        "/api/v1/vector/query",
+        response_model=VectorQueryResponse,
+        tags=["VectorDB"],
+        summary="Query ChromaDB vector database for relevant fraud policy clauses",
+        operation_id="queryVectorDatabase",
+    )
+    async def query_vector_database_endpoint(
+        payload: VectorQueryRequest,
+    ) -> VectorQueryResponse:
+        """Perform semantic similarity search against the ChromaDB fraud_policies collection."""
+        collection = _get_vector_collection()
+        clean_year = payload.policy_year.strip() if payload.policy_year and payload.policy_year.strip() else None
+        clean_cat = payload.category.strip() if payload.category and payload.category.strip() else None
+
+        raw_results = _chroma_query_mod.query_fraud_policies(
+            query_text=payload.query,
+            policy_year=clean_year,
+            n_results=payload.top_k,
+            category=clean_cat,
+            collection=collection,
+        )
+
+        items = [VectorQueryResultItem.model_validate(r) for r in raw_results]
+        return VectorQueryResponse(
+            query=payload.query,
+            top_k=payload.top_k,
+            policy_year=clean_year,
+            category=clean_cat,
+            total_results=len(items),
+            results=items,
+        )
+
+    @application.get(
+        "/api/v1/vector/documents",
+        response_model=VectorDocumentsListResponse,
+        tags=["VectorDB"],
+        summary="List ingested policy document chunks in ChromaDB",
+        operation_id="listVectorDocuments",
+    )
+    async def list_vector_documents_endpoint(
+        limit: int = Query(default=50, ge=1, le=200),
+        policy_year: str | None = Query(default=None),
+    ) -> VectorDocumentsListResponse:
+        """List ingested policy document chunks in ChromaDB."""
+        collection = _get_vector_collection()
+        clean_year = policy_year.strip() if policy_year and policy_year.strip() else None
+
+        get_kwargs: dict[str, Any] = {"limit": limit}
+        if clean_year:
+            get_kwargs["where"] = {"policy_year": clean_year}
+
+        raw = collection.get(**get_kwargs)
+        ids = raw.get("ids") or []
+        docs = raw.get("documents") or []
+        metas = raw.get("metadatas") or []
+
+        items: list[VectorQueryResultItem] = []
+        for doc_id, text, meta in zip(ids, docs, metas, strict=False):
+            meta_dict = meta or {}
+            items.append(
+                VectorQueryResultItem(
+                    id=str(doc_id),
+                    clause_id=str(meta_dict.get("clause_id", "N/A")),
+                    policy_year=str(meta_dict.get("policy_year", "N/A")),
+                    category=str(meta_dict.get("category", "N/A")),
+                    title=str(meta_dict.get("title", "N/A")),
+                    text=str(text or ""),
+                    distance=0.0,
+                    similarity_score=1.0,
+                    metadata=dict(meta_dict),
+                )
+            )
+
+        return VectorDocumentsListResponse(
+            collection_name=collection.name,
+            total_returned=len(items),
+            items=items,
+        )
+
+    @application.post(
+        "/api/v1/vector/documents",
+        response_model=VectorDocumentUploadResponse,
+        status_code=201,
+        tags=["VectorDB"],
+        summary="Upload and ingest new policy document(s) into ChromaDB",
+        operation_id="uploadVectorDocument",
+    )
+    async def upload_vector_document_endpoint(
+        payload: VectorDocumentUploadRequest,
+    ) -> VectorDocumentUploadResponse:
+        """Chunk and ingest a new policy document or custom rule into ChromaDB."""
+        collection = _get_vector_collection()
+        res = _chroma_ingest_mod.ingest_custom_document(
+            content=payload.content,
+            filename=payload.filename or "uploaded-policy.md",
+            policy_year=payload.policy_year or "2026",
+            title=payload.title,
+            clause_id=payload.clause_id,
+            category=payload.category or "CUSTOM",
+            collection=collection,
+        )
+        return VectorDocumentUploadResponse(
+            status="SUCCESS",
+            message=f"Successfully ingested {res['chunks_ingested']} policy chunk(s) into ChromaDB.",
+            chunks_ingested=res["chunks_ingested"],
+            collection_count=res["collection_count"],
+            ingested_ids=res["ingested_ids"],
+        )
+
+    @application.get(
+        "/api/v1/vector/stats",
+        response_model=VectorStatsResponse,
+        tags=["VectorDB"],
+        summary="Get ChromaDB collection statistics and document counts",
+        operation_id="getVectorStats",
+    )
+    async def get_vector_stats_endpoint() -> VectorStatsResponse:
+        """Return ChromaDB collection statistics including counts per year and category."""
+        collection = _get_vector_collection()
+        all_items = collection.get()
+        metas = all_items.get("metadatas") or []
+
+        chunks_per_year: dict[str, int] = {}
+        categories_set: set[str] = set()
+
+        for m in metas:
+            if not m:
+                continue
+            yr = str(m.get("policy_year", "unknown"))
+            chunks_per_year[yr] = chunks_per_year.get(yr, 0) + 1
+            cat = str(m.get("category", "")).strip()
+            if cat:
+                categories_set.add(cat)
+
+        return VectorStatsResponse(
+            collection_name=collection.name,
+            total_documents=collection.count(),
+            chunks_per_year=chunks_per_year,
+            categories=sorted(categories_set),
         )
 
     return application
