@@ -1,7 +1,9 @@
 """Configuration management for Transaction Fraud Scorer Agentic AI."""
 
+from functools import lru_cache
 from typing import Literal
 
+import httpx
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -15,7 +17,7 @@ class AgentFeatureFlags(BaseModel):
     )
     enable_data_retriever_agent: bool = Field(
         default=True,
-        description="Enable or disable the Data Retriever Agent (account history & profile lookup).",
+        description="Enable or disable the Data Retriever Agent (account history & RAG policy lookup).",
     )
     enable_analysis_agent: bool = Field(
         default=True,
@@ -25,6 +27,79 @@ class AgentFeatureFlags(BaseModel):
         default=True,
         description="Enable or disable the Decision Agent (final risk score and APPROVE/REVIEW/DECLINE disposition).",
     )
+    enable_evaluator_agent: bool = Field(
+        default=True,
+        description="Enable or disable the Evaluator Agent (Actor-Critic mathematical & policy compliance auditor).",
+    )
+    enable_rag_policy_retrieval: bool = Field(
+        default=True,
+        description="Enable or disable ChromaDB RAG policy retrieval in DataRetrieverAgent.",
+    )
+
+
+class AgentModelConfig(BaseModel):
+    """Configuration mapping distinct model tiers to specific agent roles (Heterogeneous Model Tiering)."""
+
+    # Tier 1: Fast Small Language Models (Tool-calling & JSON schema formatting)
+    data_retrieval_model: str = Field(
+        default="llama3.2:3b",
+        description="Tier 1 Fast SLM for Data Retrieval Agent (SQLite & ChromaDB tool calling).",
+    )
+
+    # Tier 2: Mid-sized Analytical Models (Numerical correlation & signal weighting)
+    analysis_model: str = Field(
+        default="llama3.1:8b",
+        description="Tier 2 Balanced Analytical LLM for Analysis Agent.",
+    )
+    governance_model: str = Field(
+        default="llama3.1:8b",
+        description="Tier 2 Compliance Policy LLM.",
+    )
+
+    # Tier 3: High-Capacity Frontier Models (Complex synthesis & adversarial auditing)
+    decision_model: str = Field(
+        default="qwen3.8:27b",
+        description="Tier 3 Deep Reasoning model (Qwen 3.8 27B) for Decision Agent (Actor).",
+    )
+    evaluator_model: str = Field(
+        default="qwen3.8:27b",
+        description="Tier 3+ Critical Auditor model (Qwen 3.8 27B) for Evaluator Agent (Critic).",
+    )
+
+
+@lru_cache(maxsize=32)
+def get_installed_ollama_models(base_url: str) -> tuple[str, ...]:
+    """Fetch and cache the list of installed model tags from the local Ollama server."""
+    try:
+        resp = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=1.5)
+        if resp.status_code == 200:
+            data = resp.json()
+            models = data.get("models") or []
+            return tuple(str(m.get("name", "")) for m in models if m.get("name"))
+    except Exception:
+        pass
+    return ()
+
+
+def resolve_ollama_model(
+    preferred_model: str,
+    fallback_model: str = "llama3.2:3b",
+    base_url: str = "http://localhost:11434",
+) -> str:
+    """Resolve an agent's preferred tier model against locally installed Ollama models.
+
+    If `preferred_model` (e.g. `qwen3.8:27b` or `llama3.1:8b`) is installed in Ollama,
+    returns `preferred_model`. Otherwise gracefully falls back to `fallback_model`
+    (e.g. `llama3.2:3b`) so local/Colab execution never fails with a 404 model error.
+    """
+    installed = get_installed_ollama_models(base_url)
+    if not installed:
+        return preferred_model
+    preferred_base = preferred_model.split(":")[0]
+    for tag in installed:
+        if tag == preferred_model or tag.split(":")[0] == preferred_base:
+            return preferred_model
+    return fallback_model
 
 
 class Settings(BaseSettings):
@@ -34,6 +109,12 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2:3b"
     default_llm_provider: Literal["ollama", "mock", "gemini", "anthropic", "openai"] = "ollama"
+
+    # Heterogeneous Model Tiering Defaults (PRD-017)
+    data_retrieval_model: str = "llama3.2:3b"
+    analysis_model: str = "llama3.1:8b"
+    decision_model: str = "qwen3.8:27b"
+    evaluator_model: str = "qwen3.8:27b"
 
     # Optional Cloud LLM Keys (fallback or comparison)
     gemini_api_key: str | None = None
@@ -50,14 +131,21 @@ class Settings(BaseSettings):
     api_gateway_port: int = 8000
     enable_cloudflare_tunnel: bool = False
 
-    # SQLite RDBMS Settings
+    # SQLite RDBMS & ChromaDB Policy Settings
     sqlite_db_path: str = "src/sqllite/fraud_scorer.db"
+    default_policy_year: str = "2026"
 
-    # Configurable Agent Feature Flags (PRD-009)
+    # Actor-Critic Loop & SLA Circuit Breaker Controls (PRD-017)
+    max_evaluation_retries: int = 3
+    max_evaluation_timeout_ms: float = 1800.0
+
+    # Configurable Agent Feature Flags (PRD-009 & PRD-017)
     enable_orchestrator_agent: bool = True
     enable_data_retriever_agent: bool = True
     enable_analysis_agent: bool = True
     enable_decision_agent: bool = True
+    enable_evaluator_agent: bool = True
+    enable_rag_policy_retrieval: bool = True
 
     # General App Settings
     log_level: str = "INFO"
@@ -76,6 +164,17 @@ class Settings(BaseSettings):
             enable_data_retriever_agent=self.enable_data_retriever_agent,
             enable_analysis_agent=self.enable_analysis_agent,
             enable_decision_agent=self.enable_decision_agent,
+            enable_evaluator_agent=self.enable_evaluator_agent,
+            enable_rag_policy_retrieval=self.enable_rag_policy_retrieval,
+        )
+
+    def get_model_config(self) -> AgentModelConfig:
+        """Return an AgentModelConfig instance populated from current settings."""
+        return AgentModelConfig(
+            data_retrieval_model=self.data_retrieval_model,
+            analysis_model=self.analysis_model,
+            decision_model=self.decision_model,
+            evaluator_model=self.evaluator_model,
         )
 
 

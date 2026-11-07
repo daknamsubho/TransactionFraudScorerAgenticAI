@@ -1,15 +1,16 @@
 """Orchestrator Agent (`src/fraud_scorer/agents/orchestrator_agent.py`).
 
-Per PRD-009 & PRD-010:
-- The Orchestrator Agent is strictly a manager/coordinator agent.
-- It does NOT take any scoring or approval decision itself.
-- It receives the Transaction ingested from the API Gateway, coordinates enabled sub-agents
-  (`DataRetrieverAgent`, `AnalysisAgent`) according to configurable `AgentFeatureFlags`, and
-  provides all relevant data to the `DecisionAgent`, which returns the score and decision
-  (`FraudAssessment`) back to the API Gateway for WebClient delivery and feedback.
+Implements the LangGraph Supervisor Orchestration Control Plane per `docs/agentic-architecture-pattern.md`
+(PRD-013 & PRD-017):
+- Pure supervisor driving a compiled LangGraph `StateGraph(FraudEvaluationState)`.
+- Coordinates `DataRetrieverAgent` (Tier 1: `llama3.2:3b`), `AnalysisAgent` (Tier 2: `llama3.1:8b`),
+  `DecisionAgent` (Actor — Tier 3: `qwen3.8:27b`), and `EvaluatorAgent` (Critic — Tier 3+: `qwen3.8:27b`).
+- Mediates on-demand supplementary retrieval requests from `AnalysisAgent` to `DataRetrieverAgent`.
+- Enforces Actor-Critic feedback loop (up to `max_retries=3`) and SLA circuit breaker (`1800ms`).
 """
 
 import asyncio
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,10 +19,12 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from fraud_scorer.agents.analysis_agent import AnalysisAgent, AnalysisResult
-from fraud_scorer.agents.data_retriever_agent import DataRetrievalResult, DataRetrieverAgent
+from fraud_scorer.agents.analysis_agent import AnalysisAgent
+from fraud_scorer.agents.data_retriever_agent import DataRetrieverAgent
 from fraud_scorer.agents.decision_agent import DecisionAgent
-from fraud_scorer.config import AgentFeatureFlags, settings
+from fraud_scorer.agents.evaluator_agent import EvaluatorAgent
+from fraud_scorer.agents.workflow import FraudEvaluationState, build_fraud_evaluation_graph
+from fraud_scorer.config import AgentFeatureFlags, AgentModelConfig, settings
 from fraud_scorer.models.transaction import (
     FraudAssessment,
     GeoLocation,
@@ -49,7 +52,7 @@ def is_ollama_available(base_url: str | None = None) -> bool:
 
 
 class OrchestratorAgent:
-    """Pure manager agent that coordinates Data Retriever, Analysis, and Decision agents."""
+    """LangGraph Supervisor Agent coordinating Data Retriever, Analysis, Decision (Actor), and Evaluator (Critic)."""
 
     def __init__(
         self,
@@ -57,38 +60,89 @@ class OrchestratorAgent:
         model_name: str | None = None,
         provider: str | None = None,
         agent_flags: AgentFeatureFlags | None = None,
+        model_config: AgentModelConfig | None = None,
         data_retriever_agent: DataRetrieverAgent | None = None,
         analysis_agent: AnalysisAgent | None = None,
         decision_agent: DecisionAgent | None = None,
+        evaluator_agent: EvaluatorAgent | None = None,
         db_path: str | Path | None = None,
+        policy_year: str | None = None,
+        max_retries: int | None = None,
+        max_timeout_ms: float | None = None,
     ) -> None:
         self.ollama_base_url = ollama_base_url or settings.ollama_base_url
         self.model_name = model_name or settings.ollama_model
         self.provider = provider or settings.default_llm_provider
         self.agent_flags = agent_flags or settings.get_agent_flags()
+        self.model_config_tiers = model_config or settings.get_model_config()
         self.db_path = db_path
+        self.policy_year = policy_year or settings.default_policy_year
+        self.max_retries = settings.max_evaluation_retries if max_retries is None else max_retries
+        self.max_timeout_ms = (
+            settings.max_evaluation_timeout_ms if max_timeout_ms is None else max_timeout_ms
+        )
 
         self.data_retriever_agent = data_retriever_agent or DataRetrieverAgent(
             ollama_base_url=self.ollama_base_url,
-            model_name=self.model_name,
+            model_name=model_name or self.model_config_tiers.data_retrieval_model,
             db_path=self.db_path,
+            enable_rag=self.agent_flags.enable_rag_policy_retrieval,
         )
         self.analysis_agent = analysis_agent or AnalysisAgent(
             ollama_base_url=self.ollama_base_url,
-            model_name=self.model_name,
+            model_name=model_name or self.model_config_tiers.analysis_model,
             db_path=self.db_path,
         )
         self.decision_agent = decision_agent or DecisionAgent(
             ollama_base_url=self.ollama_base_url,
-            model_name=self.model_name,
+            model_name=model_name or self.model_config_tiers.decision_model,
         )
+        self.evaluator_agent = evaluator_agent or EvaluatorAgent(
+            ollama_base_url=self.ollama_base_url,
+            model_name=model_name or self.model_config_tiers.evaluator_model,
+        )
+
+        self.workflow = build_fraud_evaluation_graph(
+            data_retriever_agent=self.data_retriever_agent,
+            analysis_agent=self.analysis_agent,
+            decision_agent=self.decision_agent,
+            evaluator_agent=self.evaluator_agent,
+            agent_flags=self.agent_flags,
+        )
+
+    async def run_workflow_state(
+        self,
+        transaction: Transaction,
+        db_path: str | Path | None = None,
+        policy_year: str | None = None,
+    ) -> FraudEvaluationState:
+        """Execute the compiled LangGraph StateGraph and return the final FraudEvaluationState."""
+        effective_db_path = str(db_path or self.db_path) if (db_path or self.db_path) else None
+        effective_year = policy_year or self.policy_year
+        use_llm = self.provider == "ollama" and check_ollama_connection(self.ollama_base_url)
+
+        initial_state = FraudEvaluationState(
+            transaction_id=transaction.transaction_id,
+            transaction=transaction.model_dump(mode="json"),
+            policy_year=effective_year,
+            db_path=effective_db_path,
+            use_llm=use_llm,
+            max_retries=self.max_retries,
+            max_timeout_ms=self.max_timeout_ms,
+            execution_start_time=time.monotonic(),
+        )
+        raw_final_state = await self.workflow.ainvoke(initial_state)
+        if isinstance(raw_final_state, FraudEvaluationState):
+            return raw_final_state
+        return FraudEvaluationState.model_validate(raw_final_state)
 
     async def coordinate_evaluation(
         self,
         transaction: Transaction,
         db_path: str | Path | None = None,
+        policy_year: str | None = None,
     ) -> FraudAssessment:
-        """Coordinate enabled sub-agents and delegate the final decision to the Decision Agent.
+        """Coordinate sub-agents via LangGraph StateGraph and return the final FraudAssessment.
 
         Note: The Orchestrator Agent performs zero scoring or decisioning logic itself.
         """
@@ -106,66 +160,35 @@ class OrchestratorAgent:
                 tools_invoked=[],
             )
 
-        effective_db_path = db_path or self.db_path
-        use_llm = self.provider == "ollama" and check_ollama_connection(self.ollama_base_url)
-
-        # Step 1: Delegate data retrieval to DataRetrieverAgent (if enabled)
-        data_result: DataRetrievalResult | None = None
-        if self.agent_flags.enable_data_retriever_agent:
-            data_result = await self.data_retriever_agent.retrieve_data(
-                transaction=transaction,
-                use_llm=use_llm,
-                db_path=effective_db_path,
-            )
-
-        # Step 2: Delegate multi-vector signal analysis to AnalysisAgent (if enabled)
-        analysis_result: AnalysisResult | None = None
-        if self.agent_flags.enable_analysis_agent:
-            account_history = data_result.account_history if data_result is not None else None
-            analysis_result = await self.analysis_agent.analyze_transaction(
-                transaction=transaction,
-                account_history=account_history,
-                use_llm=use_llm,
-                db_path=effective_db_path,
-            )
-
-        # Step 3: Pass all gathered data to DecisionAgent (if enabled)
-        if not self.agent_flags.enable_decision_agent:
-            invoked_tools: list[str] = []
-            if data_result is not None:
-                invoked_tools.extend(data_result.tools_invoked)
-            if analysis_result is not None:
-                invoked_tools.extend(analysis_result.tools_invoked)
+        final_state = await self.run_workflow_state(
+            transaction=transaction,
+            db_path=db_path,
+            policy_year=policy_year,
+        )
+        if final_state.draft_assessment is None:
             return FraudAssessment(
                 transaction_id=transaction.transaction_id,
                 account_id=transaction.account_id,
                 overall_risk_score=0.0,
                 decision="APPROVE",
-                risk_factors=[
-                    *(data_result.risk_factors if data_result else []),
-                    *(analysis_result.risk_factors if analysis_result else []),
-                ],
-                reasoning_summary=(
-                    f"Decision Agent is disabled via feature flag "
-                    f"(enable_decision_agent=False) for transaction {transaction.transaction_id}."
-                ),
-                tools_invoked=list(dict.fromkeys(invoked_tools)),
+                risk_factors=[],
+                reasoning_summary="No assessment generated by workflow.",
+                tools_invoked=[],
             )
-
-        return await self.decision_agent.make_decision(
-            transaction=transaction,
-            data_result=data_result,
-            analysis_result=analysis_result,
-            use_llm=use_llm,
-        )
+        return FraudAssessment.model_validate(final_state.draft_assessment)
 
     async def evaluate_transaction(
         self,
         transaction: Transaction,
         db_path: str | Path | None = None,
+        policy_year: str | None = None,
     ) -> FraudAssessment:
-        """Evaluate a transaction by coordinating enabled sub-agents and delegating to DecisionAgent."""
-        return await self.coordinate_evaluation(transaction, db_path=db_path)
+        """Evaluate a transaction by executing the LangGraph Supervisor-Critic workflow."""
+        return await self.coordinate_evaluation(
+            transaction=transaction,
+            db_path=db_path,
+            policy_year=policy_year,
+        )
 
 
 # Alias for backward compatibility across API Gateway and callers
@@ -207,20 +230,25 @@ def display_assessment(tx: Transaction, assessment: FraudAssessment) -> None:
         f"[italic]{assessment.reasoning_summary}[/italic]"
     )
 
-    console.print(Panel(summary_text, title="Fraud Scorer Assessment", border_style=color))
+    console.print(Panel(summary_text, title="Fraud Scorer Assessment (LangGraph Supervisor-Critic)", border_style=color))
     console.print(table)
     console.print()
 
 
 async def _async_demo() -> None:
-    """Run sample normal and fraudulent transactions through the multi-agent orchestrator."""
+    """Run sample normal and fraudulent transactions through the LangGraph multi-agent orchestrator."""
     orchestrator = OrchestratorAgent()
     ollama_up = is_ollama_available(orchestrator.ollama_base_url)
 
+    tiers_info = (
+        f"Tier 1={orchestrator.model_config_tiers.data_retrieval_model}, "
+        f"Tier 2={orchestrator.model_config_tiers.analysis_model}, "
+        f"Tier 3={orchestrator.model_config_tiers.decision_model}"
+    )
     mode_str = (
-        f"Ollama Local LLM ({orchestrator.model_name} @ {orchestrator.ollama_base_url})"
+        f"LangGraph + Ollama ({tiers_info} @ {orchestrator.ollama_base_url})"
         if ollama_up
-        else "Multi-Agent Skill Mode (Ollama not detected on localhost:11434)"
+        else f"LangGraph Multi-Agent Skill Mode ({tiers_info}; Ollama offline)"
     )
     console.print(Panel(f"[bold blue]Running in:[/bold blue] {mode_str}"))
 
