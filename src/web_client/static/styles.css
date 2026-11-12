@@ -821,3 +821,84 @@ tbody tr:hover td {
   color: var(--text-muted);
 }
 
+/* PRD-018: Live Agent Reasoning Timeline & LangSmith Trace Badge */
+.reasoning-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.reasoning-card-header h3 {
+  margin: 0;
+}
+
+.badge-trace-link {
+  background-color: #eef2ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+  text-decoration: none;
+  text-transform: none;
+  font-size: 0.8rem;
+  padding: 0.25rem 0.65rem;
+  transition: background-color 0.15s ease;
+}
+
+.badge-trace-link:hover {
+  background-color: #dbeafe;
+}
+
+.live-agent-reasoning-card {
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: #f8fafc;
+  padding: 0.75rem 1rem;
+}
+
+.agent-timeline-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.agent-timeline-empty {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.agent-timeline-item {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  padding: 0.35rem 0.5rem;
+  background: #ffffff;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+}
+
+.agent-timeline-node {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.agent-timeline-msg {
+  color: var(--text-secondary);
+  flex: 1 1 auto;
+}
+
+.agent-timeline-meta {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+

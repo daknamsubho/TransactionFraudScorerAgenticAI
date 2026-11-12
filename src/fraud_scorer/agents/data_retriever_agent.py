@@ -1,7 +1,8 @@
 """Data Retriever Agent (`src/fraud_scorer/agents/data_retriever_agent.py`).
 
 Implements the Single Unified Retrieval Agent with Concurrent I/O (SQLite + ChromaDB)
-using a Tier 1 Fast SLM (`llama3.2:3b`) as specified in `docs/agentic-architecture-pattern.md`.
+using a Tier 1 Fast SLM (`llama3.2:3b`) as specified in `docs/agentic-architecture-pattern.md`
+with child span instrumentation (`@safe_traceable`) per PRD-018.
 """
 
 import asyncio
@@ -14,15 +15,19 @@ from pydantic import BaseModel, Field
 
 from fraud_scorer.config import resolve_ollama_model, settings
 from fraud_scorer.models.transaction import RiskFactor, Transaction
+from fraud_scorer.observability.tracer import safe_traceable
 from fraud_scorer.skills.account_history_skill import AccountHistorySkill
 from fraud_scorer.skills.policy_retrieval_skill import PolicyRetrievalSkill
 
-DATA_RETRIEVER_SYSTEM_PROMPT = """You are the Data Retriever Agent (Tier 1 Fast SLM) in a multi-agent financial fraud detection system.
-Your responsibility is to concurrently retrieve:
-1. The customer's relational account history, profile age, prior disputes, historical average spend, and trust tier from SQLite using `lookup_account_history_tool`.
-2. Relevant organizational fraud risk policy clauses from ChromaDB using `query_fraud_policies_tool`.
-You also respond to targeted supplementary data requests routed by the Supervisor from the Analysis Agent.
-Do NOT make any final fraud approval or decline decisions."""
+DATA_RETRIEVER_SYSTEM_PROMPT = (
+    "You are the Data Retriever Agent (Tier 1 Fast SLM) in a multi-agent financial fraud detection system.\n"
+    "Your responsibility is to concurrently retrieve:\n"
+    "1. The customer's relational account history, profile age, prior disputes, historical average spend, "
+    "and trust tier from SQLite using `lookup_account_history_tool`.\n"
+    "2. Relevant organizational fraud risk policy clauses from ChromaDB using `query_fraud_policies_tool`.\n"
+    "You also respond to targeted supplementary data requests routed by the Supervisor from the Analysis Agent.\n"
+    "Do NOT make any final fraud approval or decline decisions."
+)
 
 
 class DataRetrievalResult(BaseModel):
@@ -80,6 +85,34 @@ class DataRetrieverAgent:
             bound_tools.append(self.policy_skill.get_langchain_tool())
         return llm.bind_tools(bound_tools), resolved_model
 
+    @safe_traceable(name="lookup_account_history", run_type="tool")
+    async def _execute_account_history(
+        self,
+        account_id: str,
+        db_path: str | Path | None = None,
+    ) -> tuple[dict[str, Any], list[RiskFactor], str]:
+        """Traced SQLite customer account history lookup."""
+        return await self.skill.execute(account_id=account_id, db_path=db_path)
+
+    @safe_traceable(name="PolicyRetrievalSkill", run_type="retriever")
+    async def _execute_policy_retrieval(
+        self,
+        transaction: Transaction,
+        policy_year: str,
+        n_results: int = 3,
+        category: str | None = None,
+        custom_query: str | None = None,
+    ) -> tuple[list[dict[str, Any]], str]:
+        """Traced ChromaDB vector similarity search for fraud policy clauses."""
+        return await self.policy_skill.execute(
+            transaction=transaction,
+            policy_year=policy_year,
+            n_results=n_results,
+            category=category,
+            custom_query=custom_query,
+        )
+
+    @safe_traceable(name="DataRetrieverAgent.retrieve_data", run_type="chain")
     async def retrieve_data(
         self,
         transaction: Transaction,
@@ -105,7 +138,8 @@ class DataRetrieverAgent:
                     HumanMessage(
                         content=(
                             f"Retrieve account history for account_id='{transaction.account_id}' "
-                            f"and fraud policy clauses (year={effective_year}) for transaction_id='{transaction.transaction_id}' "
+                            f"and fraud policy clauses (year={effective_year}) for "
+                            f"transaction_id='{transaction.transaction_id}' "
                             f"(${transaction.amount:,.2f} {transaction.currency} at MCC {transaction.merchant.mcc})."
                         )
                     ),
@@ -124,16 +158,19 @@ class DataRetrieverAgent:
         # Concurrent I/O execution across SQLite and ChromaDB via asyncio.gather()
         try:
             if should_use_rag:
-                sql_task = self.skill.execute(
+                sql_task = self._execute_account_history(
                     account_id=transaction.account_id,
                     db_path=effective_db_path,
                 )
-                rag_task = self.policy_skill.execute(
+                rag_task = self._execute_policy_retrieval(
                     transaction=transaction,
                     policy_year=effective_year,
                     n_results=3,
                 )
-                (account_history, risk_factors, sql_tool_name), (rag_policies, rag_tool_name) = await asyncio.gather(
+                (
+                    (account_history, risk_factors, sql_tool_name),
+                    (rag_policies, rag_tool_name),
+                ) = await asyncio.gather(
                     sql_task,
                     rag_task,
                 )
@@ -142,7 +179,7 @@ class DataRetrieverAgent:
                 if rag_tool_name not in tools_invoked:
                     tools_invoked.append(rag_tool_name)
             else:
-                account_history, risk_factors, sql_tool_name = await self.skill.execute(
+                account_history, risk_factors, sql_tool_name = await self._execute_account_history(
                     account_id=transaction.account_id,
                     db_path=effective_db_path,
                 )
@@ -166,6 +203,7 @@ class DataRetrieverAgent:
             model_used=resolved_model,
         )
 
+    @safe_traceable(name="DataRetrieverAgent.retrieve_supplementary_data", run_type="retriever")
     async def retrieve_supplementary_data(
         self,
         transaction: Transaction,
@@ -176,7 +214,7 @@ class DataRetrieverAgent:
     ) -> dict[str, Any]:
         """Handle an on-demand supplementary retrieval request from AnalysisAgent via the Supervisor."""
         effective_year = policy_year or settings.default_policy_year
-        policies, tool_name = await self.policy_skill.execute(
+        policies, tool_name = await self._execute_policy_retrieval(
             transaction=transaction,
             policy_year=effective_year,
             n_results=2,

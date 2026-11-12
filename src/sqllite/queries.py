@@ -357,6 +357,7 @@ INSERT INTO transaction_scores (
     reasoning_summary,
     risk_factors_json,
     tools_invoked_json,
+    langsmith_run_id,
     evaluated_at,
     decided_at
 ) VALUES (
@@ -369,6 +370,7 @@ INSERT INTO transaction_scores (
     :reasoning_summary,
     :risk_factors_json,
     :tools_invoked_json,
+    :langsmith_run_id,
     :evaluated_at,
     :decided_at
 );
@@ -385,6 +387,7 @@ SELECT
     reasoning_summary,
     risk_factors_json,
     tools_invoked_json,
+    langsmith_run_id,
     evaluated_at,
     decided_at
 FROM transaction_scores
@@ -426,6 +429,7 @@ SELECT
     s.reasoning_summary,
     s.risk_factors_json,
     s.tools_invoked_json,
+    s.langsmith_run_id,
     s.evaluated_at,
     s.decided_at
 FROM transactions t
@@ -444,6 +448,7 @@ SET
     reasoning_summary = :reasoning_summary,
     risk_factors_json = :risk_factors_json,
     tools_invoked_json = :tools_invoked_json,
+    langsmith_run_id = COALESCE(:langsmith_run_id, langsmith_run_id),
     decided_at = :decided_at
 WHERE transaction_id = :transaction_id;
 """
@@ -478,6 +483,7 @@ SELECT
     reasoning_summary,
     risk_factors_json,
     tools_invoked_json,
+    langsmith_run_id,
     evaluated_at,
     decided_at
 FROM transaction_scores

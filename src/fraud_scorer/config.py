@@ -147,6 +147,16 @@ class Settings(BaseSettings):
     enable_evaluator_agent: bool = True
     enable_rag_policy_retrieval: bool = True
 
+    # LangSmith & OpenTelemetry Observability Settings (PRD-018)
+    langsmith_tracing: bool = False
+    langsmith_endpoint: str = "https://api.smith.langchain.com"
+    langsmith_api_key: str | None = None
+    langsmith_project: str = "fraud-scorer-agentic-ai"
+    langsmith_mask_pii: bool = True
+    langsmith_sample_rate: float = 1.0
+    otel_exporter_otlp_endpoint: str | None = None
+    enable_websocket_trace_streaming: bool = True
+
     # General App Settings
     log_level: str = "INFO"
     environment: Literal["development", "staging", "production"] = "development"
@@ -156,6 +166,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    def is_langsmith_enabled(self) -> bool:
+        """Return True only when LangSmith tracing is enabled and a non-empty API key is present."""
+        return bool(self.langsmith_tracing and self.langsmith_api_key and self.langsmith_api_key.strip())
 
     def get_agent_flags(self) -> AgentFeatureFlags:
         """Return an AgentFeatureFlags instance populated from current settings."""

@@ -39,6 +39,10 @@
   const btnRejectTx = document.getElementById("btn-reject-tx");
   const decisionResponseOutput = document.getElementById("decision-response-output");
 
+  // PRD-018: Live Agent Reasoning Timeline & LangSmith Trace Badge
+  const agentTimelineList = document.getElementById("live-agent-timeline-list");
+  const langsmithTraceLink = document.getElementById("langsmith-trace-link");
+
   let activeSocket = null;
   const receivedEventsMap = new Map();
 
@@ -169,7 +173,7 @@
   }
 
   function connectWebSocket() {
-    if (!wsEventsTbody) return;
+    if (!wsEventsTbody && !agentTimelineList) return;
 
     if (activeSocket) {
       activeSocket.close();
@@ -238,7 +242,92 @@
     return "badge-danger";
   }
 
+  function updateTraceLink(runId, traceUrl) {
+    if (!langsmithTraceLink) return;
+    if (!runId) {
+      langsmithTraceLink.classList.add("hidden");
+      return;
+    }
+    const targetUrl = traceUrl || `https://smith.langchain.com/r/${encodeURIComponent(runId)}`;
+    langsmithTraceLink.href = targetUrl;
+    langsmithTraceLink.title = `LangSmith Run ID: ${runId}`;
+    langsmithTraceLink.classList.remove("hidden");
+  }
+
+  function nodeToEmojiBadge(nodeName, status) {
+    if (nodeName === "DataRetrieverAgent" || nodeName === "SupplementaryRetriever") return "🔵";
+    if (nodeName === "AnalysisAgent") return "🟡";
+    if (nodeName === "DecisionAgent") return "🟣";
+    if (nodeName === "EvaluatorAgent") return status === "REJECTED" ? "🔴" : "🟢";
+    if (nodeName === "CircuitBreakerFallback") return "🟠";
+    return "⚪";
+  }
+
+  function handleAgentStepEvent(stepEvent) {
+    const details = stepEvent.details || {};
+    if (stepEvent.trace_id) {
+      updateTraceLink(stepEvent.trace_id, details.trace_url);
+    }
+    if (!agentTimelineList) return;
+
+    const emptyItem = agentTimelineList.querySelector(".agent-timeline-empty");
+    if (emptyItem) {
+      emptyItem.remove();
+    }
+
+    const txId = stepEvent.transaction_id || "tx";
+    const nodeName = stepEvent.node_name || "Agent";
+    const retryPass = typeof stepEvent.retry_count === "number" ? stepEvent.retry_count : 0;
+    const itemId = `agent-step-${txId}-${nodeName}-${retryPass}`;
+
+    let li = document.getElementById(itemId);
+    if (!li) {
+      li = document.createElement("li");
+      li.id = itemId;
+      li.className = "agent-timeline-item";
+      agentTimelineList.appendChild(li);
+    }
+
+    const iconSpan = document.createElement("span");
+    iconSpan.setAttribute("aria-hidden", "true");
+    iconSpan.textContent = nodeToEmojiBadge(nodeName, stepEvent.status);
+
+    const nodeSpan = document.createElement("span");
+    nodeSpan.className = "agent-timeline-node";
+    nodeSpan.textContent = `${nodeName}:`;
+
+    const msgSpan = document.createElement("span");
+    msgSpan.className = "agent-timeline-msg";
+    msgSpan.textContent = stepEvent.message || stepEvent.status || "";
+
+    const metaSpan = document.createElement("span");
+    metaSpan.className = "agent-timeline-meta";
+    const elapsedText =
+      typeof stepEvent.elapsed_ms === "number" && stepEvent.elapsed_ms > 0
+        ? `${Math.round(stepEvent.elapsed_ms)}ms`
+        : stepEvent.status || "";
+    metaSpan.textContent = retryPass > 0 ? `[retry #${retryPass}] ${elapsedText}` : elapsedText;
+
+    li.replaceChildren(iconSpan, nodeSpan, msgSpan, metaSpan);
+  }
+
   function handleIncomingWsEvent(eventData) {
+    if (
+      eventData &&
+      eventData.event_type &&
+      eventData.event_type !== "TRANSACTION_SCORED"
+    ) {
+      handleAgentStepEvent(eventData);
+      return;
+    }
+
+    if (eventData && eventData.score_details && eventData.score_details.langsmith_run_id) {
+      updateTraceLink(
+        eventData.score_details.langsmith_run_id,
+        eventData.score_details.trace_url
+      );
+    }
+
     if (!wsEventsTbody) return;
 
     const txId = eventData.transaction_id || "tx_unknown";
@@ -773,6 +862,13 @@
     if (restScoreOutput) {
       restScoreOutput.textContent = "Submitting transaction to API Gateway...";
     }
+    if (agentTimelineList) {
+      agentTimelineList.innerHTML = `
+        <li class="agent-timeline-empty">
+          Streaming LangGraph agent execution steps...
+        </li>
+      `;
+    }
 
     try {
       const response = await fetch(`${baseUrl}/api/v1/transactions/score`, {
@@ -783,6 +879,9 @@
       const data = await response.json();
       if (restScoreOutput) {
         restScoreOutput.textContent = JSON.stringify(data, null, 2);
+      }
+      if (data && data.langsmith_run_id) {
+        updateTraceLink(data.langsmith_run_id, data.trace_url);
       }
       if (data && data.transaction_id && decisionTxIdInput) {
         decisionTxIdInput.value = data.transaction_id;
@@ -1762,8 +1861,8 @@
       });
     }
 
-    // Auto-connect WebSocket when opening the Decision Queue page (queue.html)
-    if (wsEventsTbody) {
+    // Auto-connect WebSocket when opening the Decision Queue page (queue.html) or Submit page (index.html)
+    if (wsEventsTbody || agentTimelineList) {
       connectWebSocket();
     }
 

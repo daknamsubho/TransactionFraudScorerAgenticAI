@@ -1,8 +1,8 @@
 """Analysis Agent (`src/fraud_scorer/agents/analysis_agent.py`).
 
 Implements the Tier 2 Analytical Agent (`llama3.1:8b`) with concurrent multi-vector
-skill execution (`asyncio.gather`) and controlled sub-delegation (`request_supplementary_data`)
-routed via the LangGraph Supervisor.
+skill execution (`asyncio.gather`), controlled sub-delegation (`request_supplementary_data`),
+and child span tracing (`@safe_traceable`) per PRD-018.
 """
 
 import asyncio
@@ -16,19 +16,22 @@ from pydantic import BaseModel, Field
 
 from fraud_scorer.config import resolve_ollama_model, settings
 from fraud_scorer.models.transaction import RiskFactor, Transaction
+from fraud_scorer.observability.tracer import safe_traceable
 from fraud_scorer.skills.amount_anomaly_skill import AmountAnomalySkill
 from fraud_scorer.skills.geo_anomaly_skill import GeoAnomalySkill
 from fraud_scorer.skills.merchant_risk_skill import MerchantRiskSkill
 from fraud_scorer.skills.velocity_analysis_skill import VelocityAnalysisSkill
 
-ANALYSIS_AGENT_SYSTEM_PROMPT = """You are the Analysis Agent (Tier 2 Analytical LLM) in a multi-agent financial fraud detection system.
-Your responsibility is to invoke analytical skills (`check_velocity_tool`, `check_geo_anomaly_tool`,
-and `check_merchant_risk_tool`) and identify fraud risk signals across velocity, geography, merchant category,
-and transaction amount.
-If initial retrieval data lacks policy grounding for a detected high-risk MCC or cross-border anomaly,
-you may invoke `request_supplementary_data_tool` to request a secondary retrieval via the Supervisor.
-Do NOT make the final APPROVE/REVIEW/DECLINE disposition — pass all findings to the Orchestrator
-for the Decision Agent."""
+ANALYSIS_AGENT_SYSTEM_PROMPT = (
+    "You are the Analysis Agent (Tier 2 Analytical LLM) in a multi-agent financial fraud detection system.\n"
+    "Your responsibility is to invoke analytical skills (`check_velocity_tool`, `check_geo_anomaly_tool`, "
+    "and `check_merchant_risk_tool`) and identify fraud risk signals across velocity, geography, "
+    "merchant category, and transaction amount.\n"
+    "If initial retrieval data lacks policy grounding for a detected high-risk MCC or cross-border anomaly, "
+    "you may invoke `request_supplementary_data_tool` to request a secondary retrieval via the Supervisor.\n"
+    "Do NOT make the final APPROVE/REVIEW/DECLINE disposition — pass all findings to the Orchestrator "
+    "for the Decision Agent."
+)
 
 
 @tool
@@ -111,6 +114,65 @@ class AnalysisAgent:
             resolved_model,
         )
 
+    @safe_traceable(name="velocity_analysis_skill", run_type="tool")
+    async def _run_velocity_skill(
+        self,
+        account_id: str,
+        window_minutes: int,
+        db_path: str | Path | None,
+    ) -> tuple[dict[str, Any], list[RiskFactor], str]:
+        """Traced velocity analysis skill execution."""
+        return await self.velocity_skill.execute(
+            account_id=account_id,
+            window_minutes=window_minutes,
+            db_path=db_path,
+        )
+
+    @safe_traceable(name="geo_anomaly_skill", run_type="tool")
+    async def _run_geo_skill(
+        self,
+        account_id: str,
+        current_lat: float,
+        current_lon: float,
+        current_timestamp_iso: str,
+        db_path: str | Path | None,
+    ) -> tuple[dict[str, Any], list[RiskFactor], str]:
+        """Traced geographic haversine anomaly skill execution."""
+        return await self.geo_skill.execute(
+            account_id=account_id,
+            current_lat=current_lat,
+            current_lon=current_lon,
+            current_timestamp_iso=current_timestamp_iso,
+            db_path=db_path,
+        )
+
+    @safe_traceable(name="merchant_risk_skill", run_type="tool")
+    async def _run_merchant_skill(
+        self,
+        merchant_id: str,
+        mcc: str,
+        db_path: str | Path | None,
+    ) -> tuple[dict[str, Any], list[RiskFactor], str]:
+        """Traced merchant category risk skill execution."""
+        return await self.merchant_skill.execute(
+            merchant_id=merchant_id,
+            mcc=mcc,
+            db_path=db_path,
+        )
+
+    @safe_traceable(name="amount_anomaly_skill", run_type="tool")
+    def _run_amount_skill(
+        self,
+        transaction: Transaction,
+        account_history: dict[str, Any] | None,
+    ) -> list[RiskFactor]:
+        """Traced amount anomaly skill execution."""
+        return self.amount_skill.execute(
+            transaction=transaction,
+            account_history=account_history,
+        )
+
+    @safe_traceable(name="AnalysisAgent.analyze_transaction", run_type="chain")
     async def analyze_transaction(
         self,
         transaction: Transaction,
@@ -120,7 +182,7 @@ class AnalysisAgent:
         rag_policies: list[dict[str, Any]] | None = None,
         supplementary_already_fetched: bool = False,
     ) -> AnalysisResult:
-        """Concurrently execute velocity, geographic, merchant, and amount skills to synthesize RiskFactors."""
+        """Concurrently execute velocity, geo, merchant, and amount skills to synthesize RiskFactors."""
         llm_notes: str | None = None
         tools_invoked: list[str] = []
         effective_db_path = db_path or self.db_path
@@ -166,19 +228,19 @@ class AnalysisAgent:
             (geo_data, geo_factors, geo_tool),
             (merch_data, merch_factors, merch_tool),
         ) = await asyncio.gather(
-            self.velocity_skill.execute(
+            self._run_velocity_skill(
                 account_id=transaction.account_id,
                 window_minutes=60,
                 db_path=effective_db_path,
             ),
-            self.geo_skill.execute(
+            self._run_geo_skill(
                 account_id=transaction.account_id,
                 current_lat=transaction.location.latitude,
                 current_lon=transaction.location.longitude,
                 current_timestamp_iso=transaction.timestamp.isoformat(),
                 db_path=effective_db_path,
             ),
-            self.merchant_skill.execute(
+            self._run_merchant_skill(
                 merchant_id=transaction.merchant.merchant_id,
                 mcc=transaction.merchant.mcc,
                 db_path=effective_db_path,
@@ -186,7 +248,7 @@ class AnalysisAgent:
         )
 
         # 4. Amount Anomaly Skill (in-memory calculation)
-        amount_factors = self.amount_skill.execute(
+        amount_factors = self._run_amount_skill(
             transaction=transaction,
             account_history=account_history,
         )
@@ -197,7 +259,7 @@ class AnalysisAgent:
 
         all_factors = [*v_factors, *geo_factors, *merch_factors, *amount_factors]
 
-        # If high-risk signals are detected (e.g.,GEO_ANOMALY CRITICAL or MERCHANT_RISK) and
+        # If high-risk signals are detected (e.g., GEO_ANOMALY CRITICAL or MERCHANT_RISK) and
         # supplementary retrieval has not been performed yet and initial rag_policies is empty,
         # request targeted supplementary policy grounding from DataRetrieverAgent via Supervisor.
         if (

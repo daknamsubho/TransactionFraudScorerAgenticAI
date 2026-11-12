@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS transaction_scores (
     reasoning_summary TEXT NOT NULL,
     risk_factors_json TEXT NOT NULL DEFAULT '[]',
     tools_invoked_json TEXT NOT NULL DEFAULT '[]',
+    langsmith_run_id TEXT,
     evaluated_at TEXT NOT NULL,
     decided_at TEXT,
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE
@@ -104,5 +105,12 @@ def init_db(db_path: str | Path = DEFAULT_DB_PATH) -> Path:
     schema_sql = get_schema_sql()
     with get_connection(target) as conn:
         conn.executescript(schema_sql)
+        # Idempotent migration for existing databases created prior to PRD-018
+        cols = [
+            str(row["name"])
+            for row in conn.execute("PRAGMA table_info(transaction_scores);").fetchall()
+        ]
+        if "langsmith_run_id" not in cols:
+            conn.execute("ALTER TABLE transaction_scores ADD COLUMN langsmith_run_id TEXT;")
         conn.commit()
     return target

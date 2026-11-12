@@ -1,10 +1,15 @@
 """LangGraph State Machine Workflow (`src/fraud_scorer/agents/workflow.py`).
 
-Implements the Hybrid Supervisor with Actor-Critic Feedback & Controlled Sub-Delegation
-as specified in `docs/agentic-architecture-pattern.md`.
+Implements the Hybrid Supervisor with Actor-Critic Feedback, Controlled Sub-Delegation,
+and Dual-Plane Real-Time Step Streaming (PRD-017 & PRD-018) as specified in
+`docs/agentic-architecture-pattern.md`.
 """
 
+import contextvars
+import inspect
+import logging
 import time
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
@@ -14,8 +19,34 @@ from fraud_scorer.agents.analysis_agent import AnalysisAgent, AnalysisResult
 from fraud_scorer.agents.data_retriever_agent import DataRetrievalResult, DataRetrieverAgent
 from fraud_scorer.agents.decision_agent import DecisionAgent
 from fraud_scorer.agents.evaluator_agent import EvaluatorAgent
-from fraud_scorer.config import AgentFeatureFlags
-from fraud_scorer.models.transaction import FraudAssessment, RiskFactor, Transaction
+from fraud_scorer.config import AgentFeatureFlags, settings
+from fraud_scorer.models.transaction import (
+    AgentStepEvent,
+    AgentStepEventType,
+    FraudAssessment,
+    RiskFactor,
+    Transaction,
+)
+from fraud_scorer.observability.tracer import get_langsmith_trace_url, safe_traceable
+
+logger = logging.getLogger(__name__)
+
+StepEventCallback = Callable[[AgentStepEvent], Awaitable[None] | None]
+
+_ACTIVE_STEP_CALLBACK: contextvars.ContextVar[StepEventCallback | None] = contextvars.ContextVar(
+    "_ACTIVE_STEP_CALLBACK",
+    default=None,
+)
+
+
+def set_step_event_callback(callback: StepEventCallback | None) -> contextvars.Token[StepEventCallback | None]:
+    """Bind a per-request step event callback in the current async context."""
+    return _ACTIVE_STEP_CALLBACK.set(callback)
+
+
+def reset_step_event_callback(token: contextvars.Token[StepEventCallback | None]) -> None:
+    """Restore the previous step event callback in the current async context."""
+    _ACTIVE_STEP_CALLBACK.reset(token)
 
 
 class FraudEvaluationState(BaseModel):
@@ -27,6 +58,7 @@ class FraudEvaluationState(BaseModel):
     policy_year: str = "2026"
     db_path: str | None = None
     use_llm: bool = False
+    trace_id: str | None = None
 
     # Enrichment State
     retrieval_data: dict[str, Any] | None = None
@@ -68,12 +100,73 @@ def build_fraud_evaluation_graph(
     decision_agent: DecisionAgent,
     evaluator_agent: EvaluatorAgent,
     agent_flags: AgentFeatureFlags,
+    on_step_event: StepEventCallback | None = None,
 ) -> Any:
     """Build and compile the LangGraph StateGraph for the Hybrid Supervisor-Critic pattern."""
 
+    async def _emit_step(
+        state: FraudEvaluationState,
+        event_type: AgentStepEventType,
+        node_name: str,
+        status: str,
+        elapsed_ms: float,
+        message: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Emit an AgentStepEvent to the active callback if WebSocket streaming is enabled."""
+        if not settings.enable_websocket_trace_streaming:
+            return
+        cb = _ACTIVE_STEP_CALLBACK.get() or on_step_event
+        if cb is None:
+            return
+
+        account_id = str(state.transaction.get("account_id", "")) or None
+        event = AgentStepEvent(
+            event_type=event_type.value,
+            transaction_id=state.transaction_id,
+            username=account_id,
+            trace_id=state.trace_id,
+            node_name=node_name,
+            status=status,
+            elapsed_ms=round(max(0.0, elapsed_ms), 2),
+            retry_count=state.retry_count,
+            message=message,
+            details={
+                "policy_year": state.policy_year,
+                "is_fallback": state.is_fallback,
+                "trace_url": get_langsmith_trace_url(state.trace_id),
+                **(details or {}),
+            },
+        )
+        try:
+            res = cb(event)
+            if inspect.isawaitable(res):
+                await res
+        except Exception as exc:
+            logger.warning("Step event callback failed for node %s: %s", node_name, exc)
+
+    @safe_traceable(name="DataRetrieverNode", run_type="chain")
     async def data_retrieval_node(state: FraudEvaluationState) -> dict[str, Any]:
         """Step 1: Retrieve baseline profile from SQLite & policy clauses from ChromaDB."""
+        step_start = time.monotonic()
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_STARTED,
+            node_name="DataRetrieverAgent",
+            status="STARTED",
+            elapsed_ms=0.0,
+            message="Retrieving customer account history & ChromaDB fraud policy clauses...",
+        )
+
         if not agent_flags.enable_data_retriever_agent:
+            await _emit_step(
+                state=state,
+                event_type=AgentStepEventType.STEP_COMPLETED,
+                node_name="DataRetrieverAgent",
+                status="SKIPPED",
+                elapsed_ms=(time.monotonic() - step_start) * 1000.0,
+                message="DataRetrieverAgent disabled via feature flag.",
+            )
             return {"retrieval_data": None}
 
         tx = Transaction.model_validate(state.transaction)
@@ -84,11 +177,61 @@ def build_fraud_evaluation_graph(
             policy_year=state.policy_year,
             enable_rag=agent_flags.enable_rag_policy_retrieval,
         )
+        elapsed = (time.monotonic() - step_start) * 1000.0
+
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.TOOL_EXECUTED,
+            node_name="DataRetrieverAgent",
+            status="TOOLS_COMPLETED",
+            elapsed_ms=elapsed,
+            message=f"Executed tools: {', '.join(res.tools_invoked) or 'none'}",
+            details={
+                "tools_invoked": res.tools_invoked,
+                "clauses_count": len(res.rag_policies),
+                "trust_tier": res.account_history.get("trust_tier", "unknown"),
+            },
+        )
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_COMPLETED,
+            node_name="DataRetrieverAgent",
+            status="COMPLETED",
+            elapsed_ms=elapsed,
+            message=(
+                f"Fetched account profile & {len(res.rag_policies)} policy clause(s) "
+                f"({elapsed:.0f}ms)"
+            ),
+            details={
+                "tools_invoked": res.tools_invoked,
+                "clauses_count": len(res.rag_policies),
+                "model_used": res.model_used,
+            },
+        )
         return {"retrieval_data": res.model_dump(mode="json")}
 
+    @safe_traceable(name="AnalysisNode", run_type="chain")
     async def analysis_node(state: FraudEvaluationState) -> dict[str, Any]:
         """Step 2: Compute multi-vector risk signals & check if supplementary data is needed."""
+        step_start = time.monotonic()
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_STARTED,
+            node_name="AnalysisAgent",
+            status="STARTED",
+            elapsed_ms=0.0,
+            message="Executing velocity, geographic haversine, merchant, and amount risk skills...",
+        )
+
         if not agent_flags.enable_analysis_agent:
+            await _emit_step(
+                state=state,
+                event_type=AgentStepEventType.STEP_COMPLETED,
+                node_name="AnalysisAgent",
+                status="SKIPPED",
+                elapsed_ms=(time.monotonic() - step_start) * 1000.0,
+                message="AnalysisAgent disabled via feature flag.",
+            )
             return {
                 "analysis_data": None,
                 "analysis_completed": True,
@@ -118,6 +261,38 @@ def build_fraud_evaluation_graph(
             combined_factors.extend(rf.model_dump(mode="json") for rf in data_res.risk_factors)
         combined_factors.extend(rf.model_dump(mode="json") for rf in res.risk_factors)
 
+        elapsed = (time.monotonic() - step_start) * 1000.0
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.TOOL_EXECUTED,
+            node_name="AnalysisAgent",
+            status="TOOLS_COMPLETED",
+            elapsed_ms=elapsed,
+            message=f"Executed analytical skills: {', '.join(res.tools_invoked) or 'none'}",
+            details={
+                "tools_invoked": res.tools_invoked,
+                "risk_factors_count": len(combined_factors),
+                "categories": [rf.get("category") for rf in combined_factors],
+            },
+        )
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_COMPLETED,
+            node_name="AnalysisAgent",
+            status="COMPLETED",
+            elapsed_ms=elapsed,
+            message=(
+                f"Calculated velocity burst & geo haversine distance — "
+                f"{len(combined_factors)} risk signal(s) ({elapsed:.0f}ms)"
+            ),
+            details={
+                "tools_invoked": res.tools_invoked,
+                "risk_factors_count": len(combined_factors),
+                "needs_supplementary_data": res.needs_supplementary_data,
+                "model_used": res.model_used,
+            },
+        )
+
         return {
             "analysis_data": res.model_dump(mode="json"),
             "risk_factors": combined_factors,
@@ -127,8 +302,19 @@ def build_fraud_evaluation_graph(
             "supplementary_category": res.supplementary_category,
         }
 
+    @safe_traceable(name="SupplementaryRetrievalNode", run_type="chain")
     async def supplementary_retrieval_node(state: FraudEvaluationState) -> dict[str, Any]:
         """On-Demand Deep Query routed by Supervisor from AnalysisAgent to DataRetrieverAgent."""
+        step_start = time.monotonic()
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_STARTED,
+            node_name="SupplementaryRetriever",
+            status="STARTED",
+            elapsed_ms=0.0,
+            message=f"Fetching supplementary policy data for query: '{state.supplementary_query}'...",
+        )
+
         if not agent_flags.enable_data_retriever_agent or not state.supplementary_query:
             return {
                 "needs_supplementary_data": False,
@@ -144,14 +330,41 @@ def build_fraud_evaluation_graph(
             db_path=state.db_path,
         )
         updated_supps = [*state.supplementary_retrievals, supp_item]
+        elapsed = (time.monotonic() - step_start) * 1000.0
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_COMPLETED,
+            node_name="SupplementaryRetriever",
+            status="COMPLETED",
+            elapsed_ms=elapsed,
+            message=(
+                f"Retrieved {len(supp_item.get('retrieved_policies', []))} supplementary policy clause(s) "
+                f"({elapsed:.0f}ms)"
+            ),
+            details={"query": state.supplementary_query, "category": state.supplementary_category},
+        )
         return {
             "supplementary_retrievals": updated_supps,
             "supplementary_count": state.supplementary_count + 1,
             "needs_supplementary_data": False,
         }
 
+    @safe_traceable(name="DecisionNode", run_type="chain")
     async def decision_node(state: FraudEvaluationState) -> dict[str, Any]:
         """Step 3: Actor (DecisionAgent) synthesizes composite score, disposition, and rationale."""
+        step_start = time.monotonic()
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_STARTED,
+            node_name="DecisionAgent",
+            status="STARTED",
+            elapsed_ms=0.0,
+            message=(
+                f"Synthesizing composite risk score & disposition "
+                f"(pass #{state.retry_count + 1})..."
+            ),
+        )
+
         tx = Transaction.model_validate(state.transaction)
         data_res = (
             DataRetrievalResult.model_validate(state.retrieval_data)
@@ -184,6 +397,18 @@ def build_fraud_evaluation_graph(
                     f"(enable_decision_agent=False) for transaction {tx.transaction_id}."
                 ),
                 tools_invoked=list(dict.fromkeys(invoked_tools)),
+                langsmith_run_id=state.trace_id,
+                trace_url=get_langsmith_trace_url(state.trace_id),
+            )
+            elapsed = (time.monotonic() - step_start) * 1000.0
+            await _emit_step(
+                state=state,
+                event_type=AgentStepEventType.STEP_COMPLETED,
+                node_name="DecisionAgent",
+                status="SKIPPED",
+                elapsed_ms=elapsed,
+                message="DecisionAgent disabled via feature flag (defaulted to APPROVE 0.0).",
+                details={"score": 0.0, "decision": "APPROVE"},
             )
             return {
                 "draft_assessment": disabled_assessment.model_dump(mode="json"),
@@ -200,6 +425,26 @@ def build_fraud_evaluation_graph(
             evaluator_feedback=state.evaluator_feedback,
             supplementary_retrievals=state.supplementary_retrievals,
         )
+        assessment.langsmith_run_id = state.trace_id
+        assessment.trace_url = get_langsmith_trace_url(state.trace_id)
+
+        elapsed = (time.monotonic() - step_start) * 1000.0
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_COMPLETED,
+            node_name="DecisionAgent",
+            status="COMPLETED",
+            elapsed_ms=elapsed,
+            message=(
+                f"Proposed score {assessment.overall_risk_score:.1f} "
+                f"({assessment.decision}) ({elapsed:.0f}ms)"
+            ),
+            details={
+                "score": assessment.overall_risk_score,
+                "decision": assessment.decision,
+                "assessment_id": assessment.assessment_id,
+            },
+        )
         return {
             "draft_assessment": assessment.model_dump(mode="json"),
             "draft_score": assessment.overall_risk_score,
@@ -207,13 +452,43 @@ def build_fraud_evaluation_graph(
             "draft_reasoning": assessment.reasoning_summary,
         }
 
+    @safe_traceable(name="EvaluatorNode", run_type="chain")
     async def evaluator_node(state: FraudEvaluationState) -> dict[str, Any]:
         """Step 4: Critic (EvaluatorAgent) audits the draft assessment for math & policy compliance."""
+        step_start = time.monotonic()
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_STARTED,
+            node_name="EvaluatorAgent",
+            status="STARTED",
+            elapsed_ms=0.0,
+            message="Auditing draft assessment for mathematical & policy compliance...",
+        )
+
         if (
             not agent_flags.enable_evaluator_agent
             or not agent_flags.enable_decision_agent
             or state.draft_assessment is None
         ):
+            elapsed = (time.monotonic() - step_start) * 1000.0
+            await _emit_step(
+                state=state,
+                event_type=AgentStepEventType.CRITIC_VERDICT,
+                node_name="EvaluatorAgent",
+                status="ACCEPTED",
+                elapsed_ms=elapsed,
+                message="EvaluatorAgent audit bypassed (feature flag disabled) - ACCEPTED",
+                details={"verdict": "ACCEPTED"},
+            )
+            await _emit_step(
+                state=state,
+                event_type=AgentStepEventType.STEP_COMPLETED,
+                node_name="EvaluatorAgent",
+                status="COMPLETED",
+                elapsed_ms=elapsed,
+                message=f"Evaluator check completed ({elapsed:.0f}ms)",
+                details={"verdict": "ACCEPTED"},
+            )
             return {
                 "evaluator_verdict": "ACCEPTED",
                 "evaluator_feedback": None,
@@ -235,6 +510,38 @@ def build_fraud_evaluation_graph(
             rag_policies=rag_policies,
             use_llm=state.use_llm,
         )
+        elapsed = (time.monotonic() - step_start) * 1000.0
+
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.CRITIC_VERDICT,
+            node_name="EvaluatorAgent",
+            status=verdict.verdict,
+            elapsed_ms=elapsed,
+            message=(
+                f"Verified policy consistency - {verdict.verdict} ({elapsed:.0f}ms)"
+                if verdict.verdict == "ACCEPTED"
+                else (
+                    f"Critic REJECTED draft ({verdict.rejection_category}): "
+                    f"{verdict.remediation_instruction}"
+                )
+            ),
+            details={
+                "verdict": verdict.verdict,
+                "rejection_category": verdict.rejection_category,
+                "remediation_target": verdict.target_agent,
+                "audit_notes": verdict.audit_notes,
+            },
+        )
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_COMPLETED,
+            node_name="EvaluatorAgent",
+            status=verdict.verdict,
+            elapsed_ms=elapsed,
+            message=f"Evaluator audit verdict: {verdict.verdict} ({elapsed:.0f}ms)",
+            details={"verdict": verdict.verdict},
+        )
 
         if verdict.verdict == "ACCEPTED":
             return {
@@ -254,8 +561,10 @@ def build_fraud_evaluation_graph(
             "retry_count": state.retry_count + 1,
         }
 
+    @safe_traceable(name="CircuitBreakerFallbackNode", run_type="chain")
     async def circuit_breaker_fallback_node(state: FraudEvaluationState) -> dict[str, Any]:
         """Circuit Breaker Fallback when retries > max_retries or SLA timeout is exceeded."""
+        step_start = time.monotonic()
         tx = Transaction.model_validate(state.transaction)
         factors = [RiskFactor.model_validate(rf) for rf in state.risk_factors]
         total_score = min(round(sum(rf.contribution_score for rf in factors), 2), 100.0)
@@ -285,7 +594,38 @@ def build_fraud_evaluation_graph(
                 f"{state.evaluator_feedback or 'SLA timeout exceeded'}]"
             ),
             tools_invoked=existing_tools,
+            langsmith_run_id=state.trace_id,
+            trace_url=get_langsmith_trace_url(state.trace_id),
         )
+        elapsed = (time.monotonic() - step_start) * 1000.0
+
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.CIRCUIT_BREAKER_TRIGGERED,
+            node_name="CircuitBreakerFallback",
+            status="FALLBACK",
+            elapsed_ms=elapsed,
+            message=(
+                f"Circuit Breaker Fallback triggered after {state.retry_count} retry pass(es) "
+                f"-> {disposition} ({total_score:.1f})"
+            ),
+            details={
+                "score": total_score,
+                "decision": disposition,
+                "retry_count": state.retry_count,
+                "is_fallback": True,
+            },
+        )
+        await _emit_step(
+            state=state,
+            event_type=AgentStepEventType.STEP_COMPLETED,
+            node_name="CircuitBreakerFallback",
+            status="COMPLETED",
+            elapsed_ms=elapsed,
+            message=f"Fallback assessment finalized: {disposition} ({total_score:.1f})",
+            details={"score": total_score, "decision": disposition, "is_fallback": True},
+        )
+
         return {
             "is_fallback": True,
             "draft_assessment": fallback_assessment.model_dump(mode="json"),
