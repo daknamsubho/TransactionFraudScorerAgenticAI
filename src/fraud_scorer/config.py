@@ -56,14 +56,14 @@ class AgentModelConfig(BaseModel):
         description="Tier 2 Compliance Policy LLM.",
     )
 
-    # Tier 3: High-Capacity Frontier Models (Complex synthesis & adversarial auditing)
+    # Tier 3: Reasoning and Critical Auditor Models (Llama 3.1 8B, PRD-019)
     decision_model: str = Field(
-        default="qwen3.8:27b",
-        description="Tier 3 Deep Reasoning model (Qwen 3.8 27B) for Decision Agent (Actor).",
+        default="llama3.1:8b",
+        description="Tier 3 Reasoning model (Llama 3.1 8B) for Decision Agent (Actor).",
     )
     evaluator_model: str = Field(
-        default="qwen3.8:27b",
-        description="Tier 3+ Critical Auditor model (Qwen 3.8 27B) for Evaluator Agent (Critic).",
+        default="llama3.1:8b",
+        description="Tier 3 Critical Auditor model (Llama 3.1 8B) for Evaluator Agent (Critic).",
     )
 
 
@@ -88,7 +88,7 @@ def resolve_ollama_model(
 ) -> str:
     """Resolve an agent's preferred tier model against locally installed Ollama models.
 
-    If `preferred_model` (e.g. `qwen3.8:27b` or `llama3.1:8b`) is installed in Ollama,
+    If `preferred_model` (e.g. `llama3.1:8b` or `llama3.2:3b`) is installed in Ollama,
     returns `preferred_model`. Otherwise gracefully falls back to `fallback_model`
     (e.g. `llama3.2:3b`) so local/Colab execution never fails with a 404 model error.
     """
@@ -110,11 +110,11 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2:3b"
     default_llm_provider: Literal["ollama", "mock", "gemini", "anthropic", "openai"] = "ollama"
 
-    # Heterogeneous Model Tiering Defaults (PRD-017)
+    # Heterogeneous Model Tiering Defaults (PRD-017 & PRD-019)
     data_retrieval_model: str = "llama3.2:3b"
     analysis_model: str = "llama3.1:8b"
-    decision_model: str = "qwen3.8:27b"
-    evaluator_model: str = "qwen3.8:27b"
+    decision_model: str = "llama3.1:8b"
+    evaluator_model: str = "llama3.1:8b"
 
     # Optional Cloud LLM Keys (fallback or comparison)
     gemini_api_key: str | None = None

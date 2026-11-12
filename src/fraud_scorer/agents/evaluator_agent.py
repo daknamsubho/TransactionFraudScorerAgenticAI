@@ -1,7 +1,7 @@
 """Evaluator Agent (`src/fraud_scorer/agents/evaluator_agent.py`).
 
-Implements the Critic in the Actor-Critic topology using Tier 3+ Auditor LLM
-(`qwen3.8:27b` with automatic local Ollama fallback) as specified in
+Implements the Critic in the Actor-Critic topology using Tier 3 Critical Auditor LLM
+(`llama3.1:8b` with automatic local Ollama fallback, PRD-019) as specified in
 `docs/agentic-architecture-pattern.md`.
 """
 
@@ -14,7 +14,8 @@ from pydantic import BaseModel, Field
 from fraud_scorer.config import resolve_ollama_model, settings
 from fraud_scorer.models.transaction import FraudAssessment, Transaction
 
-EVALUATOR_AGENT_SYSTEM_PROMPT = """You are the Evaluator Agent (Critic — Tier 3+ Adversarial Compliance Auditor) in a financial fraud detection system.
+EVALUATOR_AGENT_SYSTEM_PROMPT = """\
+You are the Evaluator Agent (Critic — Tier 3 Critical Auditor) in a fraud detection system.
 Your role is to audit the Decision Agent's draft FraudAssessment for:
 1. Mathematical consistency: The overall_risk_score must align with the sum of RiskFactor contribution_scores (capped at 100.0) or mandatory policy floors.
 2. Policy compliance:
@@ -74,7 +75,7 @@ class EvaluatorAgent:
         self.score_tolerance = score_tolerance
 
     def _get_resolved_model(self) -> str:
-        """Resolve Tier 3+ model (`qwen3.8:27b`) against installed Ollama models with fallback."""
+        """Resolve Tier 3 model (`llama3.1:8b`) against installed Ollama models with fallback."""
         return resolve_ollama_model(
             preferred_model=self.preferred_model,
             fallback_model=settings.ollama_model,

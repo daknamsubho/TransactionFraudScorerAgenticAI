@@ -110,11 +110,11 @@ async def test_individual_agents_pipeline(
     decider = DecisionAgent()
     evaluator = EvaluatorAgent()
 
-    # Check Heterogeneous Model Tiering defaults (Tier 1: llama3.2:3b, Tier 2: llama3.1:8b, Tier 3: qwen3.8:27b)
+    # Check Heterogeneous Model Tiering defaults (Tier 1: llama3.2:3b, Tier 2: llama3.1:8b, Tier 3: llama3.1:8b)
     assert retriever.model_name == "llama3.2:3b"
     assert analyzer.model_name == "llama3.1:8b"
-    assert decider.model_name == "qwen3.8:27b"
-    assert evaluator.model_name == "qwen3.8:27b"
+    assert decider.model_name == "llama3.1:8b"
+    assert evaluator.model_name == "llama3.1:8b"
 
     # Normal flow
     data_res = await retriever.retrieve_data(normal_transaction, use_llm=False)

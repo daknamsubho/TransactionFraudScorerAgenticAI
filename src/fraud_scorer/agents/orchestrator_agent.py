@@ -4,7 +4,7 @@ Implements the LangGraph Supervisor Orchestration Control Plane per `docs/agenti
 (PRD-013, PRD-017 & PRD-018):
 - Pure supervisor driving a compiled LangGraph `StateGraph(FraudEvaluationState)`.
 - Coordinates `DataRetrieverAgent` (Tier 1: `llama3.2:3b`), `AnalysisAgent` (Tier 2: `llama3.1:8b`),
-  `DecisionAgent` (Actor — Tier 3: `qwen3.8:27b`), and `EvaluatorAgent` (Critic — Tier 3+: `qwen3.8:27b`).
+  `DecisionAgent` (Actor — Tier 3: `llama3.1:8b`), and `EvaluatorAgent` (Critic — Tier 3: `llama3.1:8b`).
 - Mediates on-demand supplementary retrieval requests from `AnalysisAgent` to `DataRetrieverAgent`.
 - Enforces Actor-Critic feedback loop (up to `max_retries=3`) and SLA circuit breaker (`1800ms`).
 - Propagates LangSmith distributed trace context (`run_id`, tags, sanitized metadata) and streams
