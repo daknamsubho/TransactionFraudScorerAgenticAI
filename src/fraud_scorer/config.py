@@ -4,7 +4,7 @@ from functools import lru_cache
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -148,10 +148,24 @@ class Settings(BaseSettings):
     enable_rag_policy_retrieval: bool = True
 
     # LangSmith & OpenTelemetry Observability Settings (PRD-018)
-    langsmith_tracing: bool = False
-    langsmith_endpoint: str = "https://api.smith.langchain.com"
-    langsmith_api_key: str | None = None
-    langsmith_project: str = "fraud-scorer-agentic-ai"
+    langsmith_tracing: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING", "langsmith_tracing"
+        ),
+    )
+    langsmith_endpoint: str = Field(
+        default="https://api.smith.langchain.com",
+        validation_alias=AliasChoices("LANGSMITH_ENDPOINT", "LANGCHAIN_ENDPOINT", "langsmith_endpoint"),
+    )
+    langsmith_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LANGSMITH_API_KEY", "LANGCHAIN_API_KEY", "langsmith_api_key"),
+    )
+    langsmith_project: str = Field(
+        default="fraud-scorer-agentic-ai",
+        validation_alias=AliasChoices("LANGSMITH_PROJECT", "LANGCHAIN_PROJECT", "langsmith_project"),
+    )
     langsmith_mask_pii: bool = True
     langsmith_sample_rate: float = 1.0
     otel_exporter_otlp_endpoint: str | None = None
