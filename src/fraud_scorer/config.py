@@ -1,5 +1,6 @@
 """Configuration management for Transaction Fraud Scorer Agentic AI."""
 
+import os
 from functools import lru_cache
 from typing import Literal
 
@@ -205,6 +206,51 @@ class Settings(BaseSettings):
             evaluator_model=self.evaluator_model,
         )
 
+
+def load_colab_secrets(override: bool = False) -> dict[str, str]:
+    """Import secrets from google.colab.userdata if executing in Google Colab.
+
+    Populates matching environment variables (e.g. LANGSMITH_API_KEY, GEMINI_API_KEY)
+    so Settings and downstream client SDKs pick them up seamlessly.
+    """
+    imported: dict[str, str] = {}
+    try:
+        from google.colab import userdata  # type: ignore[import-not-found]
+
+        candidate_keys = (
+            "LANGSMITH_API_KEY",
+            "LANGCHAIN_API_KEY",
+            "LANGSMITH_PROJECT",
+            "LANGSMITH_TRACING",
+            "LANGSMITH_ENDPOINT",
+            "GEMINI_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+        )
+        for key in candidate_keys:
+            try:
+                val = userdata.get(key)
+                if val:
+                    val_str = str(val).strip()
+                    if val_str and (override or key not in os.environ or not os.environ[key]):
+                        os.environ[key] = val_str
+                        imported[key] = val_str
+            except Exception:
+                pass
+
+        has_key = "LANGSMITH_API_KEY" in os.environ or "LANGCHAIN_API_KEY" in os.environ
+        tracing_val = os.environ.get("LANGSMITH_TRACING", "").lower()
+        if has_key and tracing_val != "false":
+            os.environ["LANGSMITH_TRACING"] = "true"
+            os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    except (ImportError, ModuleNotFoundError, Exception):
+        pass
+
+    return imported
+
+
+# Load secrets if running in Google Colab prior to Settings initialization
+load_colab_secrets()
 
 # Global singleton instance
 settings = Settings()

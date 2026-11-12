@@ -435,3 +435,63 @@ def test_web_client_contains_live_reasoning_timeline_and_trace_link() -> None:
     assert "View Trace in LangSmith" in index_html
     assert 'id="live-agent-timeline-list"' in queue_html
     assert "handleAgentStepEvent" in app_js
+
+
+def test_load_colab_secrets_noop_outside_colab(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify load_colab_secrets returns empty dict and does not raise outside Google Colab."""
+    import sys
+
+    from fraud_scorer.config import load_colab_secrets
+
+    # Ensure google.colab is not in sys.modules
+    monkeypatch.delitem(sys.modules, "google.colab", raising=False)
+    monkeypatch.delitem(sys.modules, "google", raising=False)
+
+    imported = load_colab_secrets()
+    assert isinstance(imported, dict)
+
+
+def test_load_colab_secrets_imports_userdata_and_enables_tracing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify load_colab_secrets extracts secrets from mock google.colab.userdata."""
+    import os
+    import sys
+
+    from fraud_scorer.config import Settings, load_colab_secrets
+
+    mock_colab = MagicMock()
+    mock_userdata = MagicMock()
+    mock_userdata.get.side_effect = lambda k: {
+        "LANGSMITH_API_KEY": "lsv2_colab_secret_test",
+        "LANGSMITH_PROJECT": "colab-fraud-scorer-project",
+        "GEMINI_API_KEY": "gemini_secret_colab",
+    }.get(k)
+    mock_colab.userdata = mock_userdata
+
+    monkeypatch.setitem(sys.modules, "google.colab", mock_colab)
+    monkeypatch.setitem(sys.modules, "google.colab.userdata", mock_userdata)
+
+    # Clear environment variables to test extraction
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    monkeypatch.delenv("LANGCHAIN_API_KEY", raising=False)
+    monkeypatch.delenv("LANGSMITH_PROJECT", raising=False)
+    monkeypatch.delenv("LANGSMITH_TRACING", raising=False)
+
+    imported = load_colab_secrets(override=True)
+
+    assert imported["LANGSMITH_API_KEY"] == "lsv2_colab_secret_test"
+    assert imported["LANGSMITH_PROJECT"] == "colab-fraud-scorer-project"
+    assert imported["GEMINI_API_KEY"] == "gemini_secret_colab"
+
+    # Verify LangSmith tracing was automatically activated
+    assert os.environ.get("LANGSMITH_TRACING") == "true"
+    assert os.environ.get("LANGCHAIN_TRACING_V2") == "true"
+
+    # Verify a new Settings instance picks up the imported secrets
+    new_settings = Settings()
+    assert new_settings.langsmith_api_key == "lsv2_colab_secret_test"
+    assert new_settings.langsmith_project == "colab-fraud-scorer-project"
+    assert new_settings.langsmith_tracing is True
+    assert new_settings.is_langsmith_enabled() is True
+
