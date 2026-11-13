@@ -153,6 +153,29 @@
         <pre id="decision-response-output" class="code-output">No decision submitted yet.</pre>
       </section>
 
+      <!-- Live Agent Reasoning Timeline (PRD-018) -->
+      <section class="inspector-section" aria-labelledby="live-reasoning-heading">
+        <div class="reasoning-card-header">
+          <h3 id="live-reasoning-heading">Live Agent Reasoning Timeline</h3>
+          <a
+            id="langsmith-trace-link"
+            href="https://smith.langchain.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="badge badge-trace-link hidden"
+          >
+            <span aria-hidden="true">🔍</span> View Trace in LangSmith
+          </a>
+        </div>
+        <div id="live-agent-reasoning-card" class="live-agent-reasoning-card" aria-live="polite">
+          <ol id="live-agent-timeline-list" class="agent-timeline-list" role="list">
+            <li class="agent-timeline-empty">
+              Waiting for live `AgentStepEvent` messages over WebSocket...
+            </li>
+          </ol>
+        </div>
+      </section>
+
       <!-- Selected Event Details Inspector -->
       <section class="inspector-section" aria-labelledby="inspector-heading">
         <h3 id="inspector-heading">WebSocket Event Details (`score_details` &amp; Echoed Request)</h3>

@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS transaction_scores (
     reasoning_summary TEXT NOT NULL,
     risk_factors_json TEXT NOT NULL DEFAULT '[]',
     tools_invoked_json TEXT NOT NULL DEFAULT '[]',
+    langsmith_run_id TEXT,
     evaluated_at TEXT NOT NULL,
     decided_at TEXT,
     FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id) ON DELETE CASCADE

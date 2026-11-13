@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from fastapi import WebSocket
 
-from api_gateway.schemas import WebSocketTransactionEvent
+from api_gateway.schemas import AgentStepEvent, WebSocketTransactionEvent
 
 logger = logging.getLogger(__name__)
 
@@ -39,13 +39,14 @@ class ConnectionManager:
         self._connections = [sub for sub in self._connections if sub.websocket is not websocket]
         logger.info("WebSocket client disconnected (active=%d)", len(self._connections))
 
-    async def broadcast_event(self, event: WebSocketTransactionEvent) -> None:
-        """Broadcast a WebSocketTransactionEvent to all matching connected clients."""
+    async def broadcast_event(self, event: WebSocketTransactionEvent | AgentStepEvent) -> None:
+        """Broadcast a WebSocketTransactionEvent or AgentStepEvent to all matching connected clients."""
         payload = event.model_dump(mode="json")
+        event_username = getattr(event, "username", None)
         stale: list[WebSocket] = []
 
         for sub in list(self._connections):
-            if sub.username is not None and sub.username != event.username:
+            if sub.username is not None and event_username is not None and sub.username != event_username:
                 continue
             try:
                 await sub.websocket.send_json(payload)

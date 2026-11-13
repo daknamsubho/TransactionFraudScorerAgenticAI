@@ -441,6 +441,7 @@ def insert_transaction_score(
     decision_reason: str | None = None,
     risk_factors: list[dict[str, Any]] | None = None,
     tools_invoked: list[str] | None = None,
+    langsmith_run_id: str | None = None,
     evaluated_at: str | None = None,
     decided_at: str | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
@@ -462,6 +463,7 @@ def insert_transaction_score(
         "reasoning_summary": reasoning_summary,
         "risk_factors_json": json.dumps(risk_factors or []),
         "tools_invoked_json": json.dumps(tools_invoked or []),
+        "langsmith_run_id": langsmith_run_id,
         "evaluated_at": evaluated_at or now,
         "decided_at": decided_at,
     }
@@ -535,6 +537,7 @@ def update_transaction_score(
     decision_reason: str | None = None,
     risk_factors: list[dict[str, Any]] | None = None,
     tools_invoked: list[str] | None = None,
+    langsmith_run_id: str | None = None,
     decided_at: str | None = None,
     db_path: str | Path = DEFAULT_DB_PATH,
 ) -> dict[str, Any] | None:
@@ -553,6 +556,7 @@ def update_transaction_score(
         "reasoning_summary": reasoning_summary,
         "risk_factors_json": json.dumps(risk_factors or []),
         "tools_invoked_json": json.dumps(tools_invoked or []),
+        "langsmith_run_id": langsmith_run_id,
         "decided_at": decided_at,
     }
     with get_connection(db_path) as conn:

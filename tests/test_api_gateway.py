@@ -139,6 +139,8 @@ def test_websocket_receives_scored_transaction_event(tmp_path: Path) -> None:
         score_json = score_resp.json()
 
         event = websocket.receive_json()
+        while event.get("event_type") != "TRANSACTION_SCORED":
+            event = websocket.receive_json()
         assert event["event_type"] == "TRANSACTION_SCORED"
         assert event["transaction_id"] == score_json["transaction_id"]
         assert event["username"] == "jdoe_99"

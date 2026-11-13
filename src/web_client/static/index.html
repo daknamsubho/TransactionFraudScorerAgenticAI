@@ -491,6 +491,28 @@
       </form>
 
       <div class="rest-response-box">
+        <div class="reasoning-card-header">
+          <h3>Live Agent Reasoning Timeline (WebSocket Plane 1 &amp; LangSmith Plane 2)</h3>
+          <a
+            id="langsmith-trace-link"
+            href="https://smith.langchain.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="badge badge-trace-link hidden"
+          >
+            <span aria-hidden="true">🔍</span> View Trace in LangSmith
+          </a>
+        </div>
+        <div id="live-agent-reasoning-card" class="live-agent-reasoning-card" aria-live="polite">
+          <ol id="live-agent-timeline-list" class="agent-timeline-list" role="list">
+            <li class="agent-timeline-empty">
+              Submit a transaction above to stream real-time LangGraph Supervisor &amp; Actor-Critic step events.
+            </li>
+          </ol>
+        </div>
+      </div>
+
+      <div class="rest-response-box">
         <h3>Latest REST Score Response (`POST /api/v1/transactions/score`)</h3>
         <pre id="rest-score-output" class="code-output">No transaction submitted yet.</pre>
       </div>

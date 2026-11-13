@@ -45,6 +45,7 @@ from api_gateway.store import TransactionStore
 from api_gateway.websocket_manager import ConnectionManager
 from fraud_scorer.agents.orchestrator_agent import FraudScorerOrchestrator, is_ollama_available
 from fraud_scorer.models.transaction import FraudAssessment
+from fraud_scorer.observability.tracer import get_langsmith_trace_url, record_feedback
 from sqllite import (
     DEFAULT_DB_PATH,
     delete_transaction,
@@ -162,11 +163,19 @@ def create_app(
     ) -> TransactionScoreResponse:
         """Ingest transaction details, coordinate evaluation via Orchestrator -> Decision Agent, and push WS event."""
         domain_tx = to_domain_transaction(payload)
-        assessment: FraudAssessment = await fraud_orchestrator.evaluate_transaction(
-            domain_tx,
-            db_path=resolved_db_path,
-        )
+        try:
+            assessment: FraudAssessment = await fraud_orchestrator.evaluate_transaction(
+                domain_tx,
+                db_path=resolved_db_path,
+                on_step_event=connection_manager.broadcast_event,
+            )
+        except TypeError:
+            assessment = await fraud_orchestrator.evaluate_transaction(
+                domain_tx,
+                db_path=resolved_db_path,
+            )
         evaluated_at = assessment.evaluated_at
+        trace_url = assessment.trace_url or get_langsmith_trace_url(assessment.langsmith_run_id)
 
         tx_store.save(domain_tx, assessment)
 
@@ -211,6 +220,7 @@ def create_app(
             reasoning_summary=assessment.reasoning_summary,
             risk_factors=[rf.model_dump(mode="json") for rf in assessment.risk_factors],
             tools_invoked=assessment.tools_invoked,
+            langsmith_run_id=assessment.langsmith_run_id,
             evaluated_at=evaluated_at.isoformat(),
             db_path=resolved_db_path,
         )
@@ -228,6 +238,8 @@ def create_app(
                 reasoning_summary=assessment.reasoning_summary,
                 risk_factors=assessment.risk_factors,
                 tools_invoked=assessment.tools_invoked,
+                langsmith_run_id=assessment.langsmith_run_id,
+                trace_url=trace_url,
                 request_payload=payload.model_dump(mode="json"),
                 evaluated_at=assessment.evaluated_at,
             ),
@@ -242,6 +254,8 @@ def create_app(
             reasoning_summary=assessment.reasoning_summary,
             risk_factors=assessment.risk_factors,
             tools_invoked=assessment.tools_invoked,
+            langsmith_run_id=assessment.langsmith_run_id,
+            trace_url=trace_url,
             evaluated_at=assessment.evaluated_at,
         )
 
@@ -279,6 +293,7 @@ def create_app(
         )
 
         db_tx = select_transaction(payload.transaction_id, db_path=resolved_db_path)
+        db_score = select_transaction_score(payload.transaction_id, db_path=resolved_db_path)
         if db_tx is not None:
             update_transaction_decision(
                 transaction_id=payload.transaction_id,
@@ -299,6 +314,19 @@ def create_app(
             return JSONResponse(
                 status_code=404,
                 content=not_found_resp.model_dump(mode="json"),
+            )
+
+        # Dispatch analyst feedback to LangSmith (Plane 2) when a run_id is correlated
+        run_id = (
+            (db_score.get("langsmith_run_id") if db_score else None)
+            or (record.assessment.langsmith_run_id if record and record.assessment else None)
+        )
+        if run_id:
+            record_feedback(
+                run_id=str(run_id),
+                key="analyst_decision",
+                score=1.0 if payload.accept else 0.0,
+                comment=payload.reason,
             )
 
         final_applied: Literal["ACCEPTED", "REJECTED"] = (
@@ -587,6 +615,7 @@ def create_app(
             reasoning_summary=payload.reasoning_summary,
             risk_factors=payload.risk_factors,
             tools_invoked=payload.tools_invoked,
+            langsmith_run_id=payload.langsmith_run_id,
             db_path=resolved_db_path,
         )
         return TransactionScoreRecord.model_validate(row)
@@ -634,6 +663,7 @@ def create_app(
             reasoning_summary=payload.reasoning_summary,
             risk_factors=payload.risk_factors,
             tools_invoked=payload.tools_invoked,
+            langsmith_run_id=payload.langsmith_run_id,
             decided_at=decided_at,
             db_path=resolved_db_path,
         )

@@ -1,18 +1,21 @@
 """Orchestrator Agent (`src/fraud_scorer/agents/orchestrator_agent.py`).
 
 Implements the LangGraph Supervisor Orchestration Control Plane per `docs/agentic-architecture-pattern.md`
-(PRD-013 & PRD-017):
+(PRD-013, PRD-017 & PRD-018):
 - Pure supervisor driving a compiled LangGraph `StateGraph(FraudEvaluationState)`.
 - Coordinates `DataRetrieverAgent` (Tier 1: `llama3.2:3b`), `AnalysisAgent` (Tier 2: `llama3.1:8b`),
-  `DecisionAgent` (Actor — Tier 3: `qwen3.8:27b`), and `EvaluatorAgent` (Critic — Tier 3+: `qwen3.8:27b`).
+  `DecisionAgent` (Actor — Tier 3: `llama3.1:8b`), and `EvaluatorAgent` (Critic — Tier 3: `llama3.1:8b`).
 - Mediates on-demand supplementary retrieval requests from `AnalysisAgent` to `DataRetrieverAgent`.
 - Enforces Actor-Critic feedback loop (up to `max_retries=3`) and SLA circuit breaker (`1800ms`).
+- Propagates LangSmith distributed trace context (`run_id`, tags, sanitized metadata) and streams
+  live `AgentStepEvent` callbacks.
 """
 
 import asyncio
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 import httpx
 from rich.console import Console
@@ -23,7 +26,13 @@ from fraud_scorer.agents.analysis_agent import AnalysisAgent
 from fraud_scorer.agents.data_retriever_agent import DataRetrieverAgent
 from fraud_scorer.agents.decision_agent import DecisionAgent
 from fraud_scorer.agents.evaluator_agent import EvaluatorAgent
-from fraud_scorer.agents.workflow import FraudEvaluationState, build_fraud_evaluation_graph
+from fraud_scorer.agents.workflow import (
+    FraudEvaluationState,
+    StepEventCallback,
+    build_fraud_evaluation_graph,
+    reset_step_event_callback,
+    set_step_event_callback,
+)
 from fraud_scorer.config import AgentFeatureFlags, AgentModelConfig, settings
 from fraud_scorer.models.transaction import (
     FraudAssessment,
@@ -31,6 +40,11 @@ from fraud_scorer.models.transaction import (
     MerchantInfo,
     PaymentMethod,
     Transaction,
+)
+from fraud_scorer.observability.sanitizer import sanitize_transaction_payload
+from fraud_scorer.observability.tracer import (
+    build_langchain_run_config,
+    get_langsmith_trace_url,
 )
 
 console = Console()
@@ -69,6 +83,7 @@ class OrchestratorAgent:
         policy_year: str | None = None,
         max_retries: int | None = None,
         max_timeout_ms: float | None = None,
+        on_step_event: StepEventCallback | None = None,
     ) -> None:
         self.ollama_base_url = ollama_base_url or settings.ollama_base_url
         self.model_name = model_name or settings.ollama_model
@@ -81,6 +96,7 @@ class OrchestratorAgent:
         self.max_timeout_ms = (
             settings.max_evaluation_timeout_ms if max_timeout_ms is None else max_timeout_ms
         )
+        self.on_step_event = on_step_event
 
         self.data_retriever_agent = data_retriever_agent or DataRetrieverAgent(
             ollama_base_url=self.ollama_base_url,
@@ -108,6 +124,7 @@ class OrchestratorAgent:
             decision_agent=self.decision_agent,
             evaluator_agent=self.evaluator_agent,
             agent_flags=self.agent_flags,
+            on_step_event=self.on_step_event,
         )
 
     async def run_workflow_state(
@@ -115,38 +132,80 @@ class OrchestratorAgent:
         transaction: Transaction,
         db_path: str | Path | None = None,
         policy_year: str | None = None,
+        on_step_event: StepEventCallback | None = None,
     ) -> FraudEvaluationState:
         """Execute the compiled LangGraph StateGraph and return the final FraudEvaluationState."""
         effective_db_path = str(db_path or self.db_path) if (db_path or self.db_path) else None
         effective_year = policy_year or self.policy_year
         use_llm = self.provider == "ollama" and check_ollama_connection(self.ollama_base_url)
 
+        tx_dump = transaction.model_dump(mode="json")
+        sanitized_tx = sanitize_transaction_payload(tx_dump) if settings.langsmith_mask_pii else tx_dump
+
+        run_config = build_langchain_run_config(
+            tx_id=transaction.transaction_id,
+            account_id=transaction.account_id,
+            policy_year=effective_year,
+            tags=[
+                f"mcc:{transaction.merchant.mcc}",
+                f"rail:{transaction.payment_method.payment_type}",
+            ],
+            metadata={
+                "amount": transaction.amount,
+                "currency": transaction.currency,
+                "merchant_category_code": transaction.merchant.mcc,
+                "payment_type": transaction.payment_method.payment_type,
+                "country": transaction.location.country,
+                "sanitized_transaction": sanitized_tx,
+                "max_retries": self.max_retries,
+                "use_llm": use_llm,
+            },
+        )
+        run_id_str = str(run_config["run_id"])
+
         initial_state = FraudEvaluationState(
             transaction_id=transaction.transaction_id,
-            transaction=transaction.model_dump(mode="json"),
+            transaction=tx_dump,
             policy_year=effective_year,
             db_path=effective_db_path,
             use_llm=use_llm,
+            trace_id=run_id_str,
             max_retries=self.max_retries,
             max_timeout_ms=self.max_timeout_ms,
             execution_start_time=time.monotonic(),
         )
-        raw_final_state = await self.workflow.ainvoke(initial_state)
-        if isinstance(raw_final_state, FraudEvaluationState):
-            return raw_final_state
-        return FraudEvaluationState.model_validate(raw_final_state)
+
+        active_cb = on_step_event or self.on_step_event
+        token = set_step_event_callback(active_cb)
+        try:
+            raw_final_state = await self.workflow.ainvoke(initial_state, config=run_config)
+        finally:
+            reset_step_event_callback(token)
+
+        final_state = (
+            raw_final_state
+            if isinstance(raw_final_state, FraudEvaluationState)
+            else FraudEvaluationState.model_validate(raw_final_state)
+        )
+        final_state.trace_id = run_id_str
+        if final_state.draft_assessment is not None:
+            final_state.draft_assessment["langsmith_run_id"] = run_id_str
+            final_state.draft_assessment["trace_url"] = get_langsmith_trace_url(run_id_str)
+        return final_state
 
     async def coordinate_evaluation(
         self,
         transaction: Transaction,
         db_path: str | Path | None = None,
         policy_year: str | None = None,
+        on_step_event: StepEventCallback | None = None,
     ) -> FraudAssessment:
         """Coordinate sub-agents via LangGraph StateGraph and return the final FraudAssessment.
 
         Note: The Orchestrator Agent performs zero scoring or decisioning logic itself.
         """
         if not self.agent_flags.enable_orchestrator_agent:
+            disabled_run_id = str(uuid4())
             return FraudAssessment(
                 transaction_id=transaction.transaction_id,
                 account_id=transaction.account_id,
@@ -158,12 +217,15 @@ class OrchestratorAgent:
                     f"(enable_orchestrator_agent=False) for transaction {transaction.transaction_id}."
                 ),
                 tools_invoked=[],
+                langsmith_run_id=disabled_run_id,
+                trace_url=get_langsmith_trace_url(disabled_run_id),
             )
 
         final_state = await self.run_workflow_state(
             transaction=transaction,
             db_path=db_path,
             policy_year=policy_year,
+            on_step_event=on_step_event,
         )
         if final_state.draft_assessment is None:
             return FraudAssessment(
@@ -174,20 +236,27 @@ class OrchestratorAgent:
                 risk_factors=[],
                 reasoning_summary="No assessment generated by workflow.",
                 tools_invoked=[],
+                langsmith_run_id=final_state.trace_id,
+                trace_url=get_langsmith_trace_url(final_state.trace_id),
             )
-        return FraudAssessment.model_validate(final_state.draft_assessment)
+        assessment = FraudAssessment.model_validate(final_state.draft_assessment)
+        assessment.langsmith_run_id = final_state.trace_id
+        assessment.trace_url = get_langsmith_trace_url(final_state.trace_id)
+        return assessment
 
     async def evaluate_transaction(
         self,
         transaction: Transaction,
         db_path: str | Path | None = None,
         policy_year: str | None = None,
+        on_step_event: StepEventCallback | None = None,
     ) -> FraudAssessment:
         """Evaluate a transaction by executing the LangGraph Supervisor-Critic workflow."""
         return await self.coordinate_evaluation(
             transaction=transaction,
             db_path=db_path,
             policy_year=policy_year,
+            on_step_event=on_step_event,
         )
 
 
@@ -226,11 +295,14 @@ def display_assessment(tx: Transaction, assessment: FraudAssessment) -> None:
         f"({tx.location.latitude}, {tx.location.longitude})\n"
         f"[bold]Overall Risk Score:[/bold] [{color}]{assessment.overall_risk_score:.1f} / 100.0[/{color}]\n"
         f"[bold]Decision:[/bold] [bold {color}]{assessment.decision}[/bold {color}]\n"
-        f"[bold]Tools Invoked:[/bold] {', '.join(assessment.tools_invoked)}\n\n"
+        f"[bold]Tools Invoked:[/bold] {', '.join(assessment.tools_invoked)}\n"
+        f"[bold]LangSmith Run ID:[/bold] {assessment.langsmith_run_id or 'N/A'}\n\n"
         f"[italic]{assessment.reasoning_summary}[/italic]"
     )
 
-    console.print(Panel(summary_text, title="Fraud Scorer Assessment (LangGraph Supervisor-Critic)", border_style=color))
+    console.print(
+        Panel(summary_text, title="Fraud Scorer Assessment (LangGraph Supervisor-Critic)", border_style=color)
+    )
     console.print(table)
     console.print()
 

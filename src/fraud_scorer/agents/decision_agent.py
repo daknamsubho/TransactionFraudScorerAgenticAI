@@ -1,7 +1,7 @@
 """Decision Agent (`src/fraud_scorer/agents/decision_agent.py`).
 
-Implements the Actor in the Actor-Critic topology using Tier 3 Deep Reasoning
-(`qwen3.8:27b` with automatic local Ollama fallback).
+Implements the Actor in the Actor-Critic topology using Tier 3 Reasoning
+(`llama3.1:8b` with automatic local Ollama fallback, PRD-019).
 """
 
 from typing import Any
@@ -15,7 +15,8 @@ from fraud_scorer.config import resolve_ollama_model, settings
 from fraud_scorer.models.transaction import FraudAssessment, RiskFactor, Transaction
 from fraud_scorer.skills.risk_scoring_decision_skill import RiskScoringDecisionSkill
 
-DECISION_AGENT_SYSTEM_PROMPT = """You are the Decision Agent (Actor — Tier 3 Deep Reasoning LLM) in a multi-agent financial fraud detection system.
+DECISION_AGENT_SYSTEM_PROMPT = """\
+You are the Decision Agent (Actor — Tier 3 Reasoning LLM) in a financial fraud detection system.
 You receive customer profile data, ChromaDB RAG policy clauses, and risk analysis factors from the Orchestrator Agent.
 Your responsibility is to synthesize the final fraud risk rationale explaining the composite score (0.0-100.0)
 and disposition:
@@ -41,7 +42,7 @@ class DecisionAgent:
         self.decision_skill = decision_skill or RiskScoringDecisionSkill()
 
     def _get_resolved_model(self) -> str:
-        """Resolve Tier 3 model (`qwen3.8:27b`) against installed Ollama models with fallback."""
+        """Resolve Tier 3 model (`llama3.1:8b`) against installed Ollama models with fallback."""
         return resolve_ollama_model(
             preferred_model=self.preferred_model,
             fallback_model=settings.ollama_model,

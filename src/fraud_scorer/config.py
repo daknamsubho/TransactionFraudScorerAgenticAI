@@ -1,10 +1,11 @@
 """Configuration management for Transaction Fraud Scorer Agentic AI."""
 
+import os
 from functools import lru_cache
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -56,14 +57,14 @@ class AgentModelConfig(BaseModel):
         description="Tier 2 Compliance Policy LLM.",
     )
 
-    # Tier 3: High-Capacity Frontier Models (Complex synthesis & adversarial auditing)
+    # Tier 3: Reasoning and Critical Auditor Models (Llama 3.1 8B, PRD-019)
     decision_model: str = Field(
-        default="qwen3.8:27b",
-        description="Tier 3 Deep Reasoning model (Qwen 3.8 27B) for Decision Agent (Actor).",
+        default="llama3.1:8b",
+        description="Tier 3 Reasoning model (Llama 3.1 8B) for Decision Agent (Actor).",
     )
     evaluator_model: str = Field(
-        default="qwen3.8:27b",
-        description="Tier 3+ Critical Auditor model (Qwen 3.8 27B) for Evaluator Agent (Critic).",
+        default="llama3.1:8b",
+        description="Tier 3 Critical Auditor model (Llama 3.1 8B) for Evaluator Agent (Critic).",
     )
 
 
@@ -88,7 +89,7 @@ def resolve_ollama_model(
 ) -> str:
     """Resolve an agent's preferred tier model against locally installed Ollama models.
 
-    If `preferred_model` (e.g. `qwen3.8:27b` or `llama3.1:8b`) is installed in Ollama,
+    If `preferred_model` (e.g. `llama3.1:8b` or `llama3.2:3b`) is installed in Ollama,
     returns `preferred_model`. Otherwise gracefully falls back to `fallback_model`
     (e.g. `llama3.2:3b`) so local/Colab execution never fails with a 404 model error.
     """
@@ -110,11 +111,11 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2:3b"
     default_llm_provider: Literal["ollama", "mock", "gemini", "anthropic", "openai"] = "ollama"
 
-    # Heterogeneous Model Tiering Defaults (PRD-017)
+    # Heterogeneous Model Tiering Defaults (PRD-017 & PRD-019)
     data_retrieval_model: str = "llama3.2:3b"
     analysis_model: str = "llama3.1:8b"
-    decision_model: str = "qwen3.8:27b"
-    evaluator_model: str = "qwen3.8:27b"
+    decision_model: str = "llama3.1:8b"
+    evaluator_model: str = "llama3.1:8b"
 
     # Optional Cloud LLM Keys (fallback or comparison)
     gemini_api_key: str | None = None
@@ -147,6 +148,30 @@ class Settings(BaseSettings):
     enable_evaluator_agent: bool = True
     enable_rag_policy_retrieval: bool = True
 
+    # LangSmith & OpenTelemetry Observability Settings (PRD-018)
+    langsmith_tracing: bool = Field(
+        default=False,
+        validation_alias=AliasChoices(
+            "LANGSMITH_TRACING", "LANGCHAIN_TRACING_V2", "LANGCHAIN_TRACING", "langsmith_tracing"
+        ),
+    )
+    langsmith_endpoint: str = Field(
+        default="https://api.smith.langchain.com",
+        validation_alias=AliasChoices("LANGSMITH_ENDPOINT", "LANGCHAIN_ENDPOINT", "langsmith_endpoint"),
+    )
+    langsmith_api_key: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("LANGSMITH_API_KEY", "LANGCHAIN_API_KEY", "langsmith_api_key"),
+    )
+    langsmith_project: str = Field(
+        default="fraud-scorer-agentic-ai",
+        validation_alias=AliasChoices("LANGSMITH_PROJECT", "LANGCHAIN_PROJECT", "langsmith_project"),
+    )
+    langsmith_mask_pii: bool = True
+    langsmith_sample_rate: float = 1.0
+    otel_exporter_otlp_endpoint: str | None = None
+    enable_websocket_trace_streaming: bool = True
+
     # General App Settings
     log_level: str = "INFO"
     environment: Literal["development", "staging", "production"] = "development"
@@ -156,6 +181,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    def is_langsmith_enabled(self) -> bool:
+        """Return True only when LangSmith tracing is enabled and a non-empty API key is present."""
+        return bool(self.langsmith_tracing and self.langsmith_api_key and self.langsmith_api_key.strip())
 
     def get_agent_flags(self) -> AgentFeatureFlags:
         """Return an AgentFeatureFlags instance populated from current settings."""
@@ -177,6 +206,51 @@ class Settings(BaseSettings):
             evaluator_model=self.evaluator_model,
         )
 
+
+def load_colab_secrets(override: bool = False) -> dict[str, str]:
+    """Import secrets from google.colab.userdata if executing in Google Colab.
+
+    Populates matching environment variables (e.g. LANGSMITH_API_KEY, GEMINI_API_KEY)
+    so Settings and downstream client SDKs pick them up seamlessly.
+    """
+    imported: dict[str, str] = {}
+    try:
+        from google.colab import userdata  # type: ignore[import-not-found]
+
+        candidate_keys = (
+            "LANGSMITH_API_KEY",
+            "LANGCHAIN_API_KEY",
+            "LANGSMITH_PROJECT",
+            "LANGSMITH_TRACING",
+            "LANGSMITH_ENDPOINT",
+            "GEMINI_API_KEY",
+            "OPENAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+        )
+        for key in candidate_keys:
+            try:
+                val = userdata.get(key)
+                if val:
+                    val_str = str(val).strip()
+                    if val_str and (override or key not in os.environ or not os.environ[key]):
+                        os.environ[key] = val_str
+                        imported[key] = val_str
+            except Exception:
+                pass
+
+        has_key = "LANGSMITH_API_KEY" in os.environ or "LANGCHAIN_API_KEY" in os.environ
+        tracing_val = os.environ.get("LANGSMITH_TRACING", "").lower()
+        if has_key and tracing_val != "false":
+            os.environ["LANGSMITH_TRACING"] = "true"
+            os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    except (ImportError, ModuleNotFoundError, Exception):
+        pass
+
+    return imported
+
+
+# Load secrets if running in Google Colab prior to Settings initialization
+load_colab_secrets()
 
 # Global singleton instance
 settings = Settings()

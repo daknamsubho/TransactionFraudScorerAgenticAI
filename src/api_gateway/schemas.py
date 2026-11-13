@@ -8,12 +8,19 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, model_validator
 
 from fraud_scorer.models.transaction import (
+    AgentStepEvent,
+    AgentStepEventType,
     GeoLocation,
     MerchantInfo,
     PaymentMethod,
     RiskFactor,
     Transaction,
 )
+
+__all__ = [
+    "AgentStepEvent",
+    "AgentStepEventType",
+]
 
 TransactionStatus = Literal["APPROVE", "REVIEW", "DECLINE", "ACCEPTED", "REJECTED"]
 
@@ -234,6 +241,14 @@ class TransactionScoreResponse(BaseModel):
         default_factory=list,
         description="MCP risk tools invoked by the Fraud Scorer agents during evaluation.",
     )
+    langsmith_run_id: str | None = Field(
+        default=None,
+        description="Correlated LangSmith distributed trace run ID (PRD-018).",
+    )
+    trace_url: str | None = Field(
+        default=None,
+        description="Shareable LangSmith trace URL when available (PRD-018).",
+    )
     evaluated_at: dt.datetime = Field(
         default_factory=lambda: dt.datetime.now(UTC),
         description="Timestamp when the fraud score was generated.",
@@ -262,6 +277,14 @@ class ScoreDetails(BaseModel):
     tools_invoked: list[str] = Field(
         default_factory=list,
         description="MCP risk tools invoked by the agent during evaluation.",
+    )
+    langsmith_run_id: str | None = Field(
+        default=None,
+        description="Correlated LangSmith distributed trace run ID (PRD-018).",
+    )
+    trace_url: str | None = Field(
+        default=None,
+        description="Shareable LangSmith trace URL when available (PRD-018).",
     )
     request_payload: dict[str, Any] | None = Field(
         default=None,
@@ -562,6 +585,7 @@ class TransactionScoreRecord(BaseModel):
     reasoning_summary: str
     risk_factors: list[dict[str, Any]] = Field(default_factory=list)
     tools_invoked: list[str] = Field(default_factory=list)
+    langsmith_run_id: str | None = None
     evaluated_at: str
     decided_at: str | None = None
 
@@ -578,6 +602,7 @@ class TransactionScoreCreateRequest(BaseModel):
     reasoning_summary: str = Field(..., min_length=1)
     risk_factors: list[dict[str, Any]] = Field(default_factory=list)
     tools_invoked: list[str] = Field(default_factory=list)
+    langsmith_run_id: str | None = None
 
 
 class TransactionScoreUpdateRequest(BaseModel):
@@ -590,6 +615,7 @@ class TransactionScoreUpdateRequest(BaseModel):
     reasoning_summary: str = Field(..., min_length=1)
     risk_factors: list[dict[str, Any]] = Field(default_factory=list)
     tools_invoked: list[str] = Field(default_factory=list)
+    langsmith_run_id: str | None = None
 
 
 class PaginatedTransactionScoresResponse(BaseModel):
