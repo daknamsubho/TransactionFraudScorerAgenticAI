@@ -1,8 +1,8 @@
 # Agentic Architecture Pattern: Hybrid Supervisor with Actor-Critic Feedback & Omnipresent Governance/Observability
 
-- **PRD Reference**: [docs/prds/13-Architect-Agentic-pattern.md](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/prds/13-Architect-Agentic-pattern.md)
+- **PRD Reference**: [docs/prds/13-Architect-Agentic-pattern.md](prds/13-Architect-Agentic-pattern.md)
 - **Status**: Architectural Specification
-- **Related Documents**: [docs/architecture.md](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/architecture.md), [docs/tot-specification.md](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/tot-specification.md), [docs/rag-design.md](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/rag-design.md)
+- **Related Documents**: [docs/architecture.md](architecture.md), [docs/tot-specification.md](tot-specification.md), [docs/rag-design.md](rag-design.md)
 
 ---
 

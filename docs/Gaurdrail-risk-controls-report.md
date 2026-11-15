@@ -74,7 +74,7 @@ To constrain agent behavior and mitigate these risks, the system establishes a *
 ```
 
 ### A. Input Checks & Ingress Schema Validation
-* **Pydantic v2 Ingress Validation** ([transaction.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/models/transaction.py#L43-L87)):
+* **Pydantic v2 Ingress Validation** ([transaction.py](../src/fraud_scorer/models/transaction.py#L43-L87)):
   * `amount`: Strictly enforced as positive float ($> 0.0$).
   * `currency`: Validated against 3-letter ISO-4217 standard codes.
   * `location.latitude` & `longitude`: Strictly bounded to valid geographic ranges ($-90.0 \le \text{lat} \le 90.0$, $-180.0 \le \text{lon} \le 180.0$).
@@ -82,12 +82,12 @@ To constrain agent behavior and mitigate these risks, the system establishes a *
   * `payment_method.card_last_four`: Enforced as exactly 4 numerical digits.
 
 ### B. Data Privacy & PCI-DSS Scrubbing
-* **Zero-Leakage Telemetry Sanitizer** ([sanitizer.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/observability/sanitizer.py)):
+* **Zero-Leakage Telemetry Sanitizer** ([sanitizer.py](../src/fraud_scorer/observability/sanitizer.py)):
   * **Cardholder Numbers**: Regex pattern matching 13-to-19 digit PANs tokenizes values to `****-****-****-1234`.
   * **Authentication Data**: Keys matching `cvv`, `cvc`, `pin`, `password`, `ssn`, `iban`, `api_key`, `secret` are overwritten with `***REDACTED***`.
   * **Customer PII**: Name, street address, email, and phone numbers are scrubbed to `***REDACTED_PII***`.
   * **Network Identifiers**: IPv4/IPv6 addresses mask final octets (e.g., `192.168.1.***`).
-* **Telemetry Egress Filter** ([tracer.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/observability/tracer.py#L111-L144)): LangSmith and OpenTelemetry trace interceptors wrap all inputs with `process_inputs=sanitize_transaction_payload` before emitting spans.
+* **Telemetry Egress Filter** ([tracer.py](../src/fraud_scorer/observability/tracer.py#L111-L144)): LangSmith and OpenTelemetry trace interceptors wrap all inputs with `process_inputs=sanitize_transaction_payload` before emitting spans.
 
 ### C. Output Constraints & Hard Decision Taxonomy
 * **Immutable Decision Taxonomy**:
@@ -95,20 +95,20 @@ To constrain agent behavior and mitigate these risks, the system establishes a *
   * $30.0 – 69.9 \rightarrow$ `REVIEW`
   * $70.0 – 100.0 \rightarrow$ `DECLINE`
 * **Deterministic Safety Floors**:
-  * **Impossible Travel Floor**: Any transaction triggering a `CRITICAL GEO_ANOMALY` (speed $> 800\text{ km/h}$) automatically forces the composite score to $\ge 75.0$ and blocks `APPROVE` ([risk_scoring_decision_skill.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/skills/risk_scoring_decision_skill.py#L33-L39)).
+  * **Impossible Travel Floor**: Any transaction triggering a `CRITICAL GEO_ANOMALY` (speed $> 800\text{ km/h}$) automatically forces the composite score to $\ge 75.0$ and blocks `APPROVE` ([risk_scoring_decision_skill.py](../src/fraud_scorer/skills/risk_scoring_decision_skill.py#L33-L39)).
   * **High-Exposure Dollar Ceiling**: Any transaction $> \$5,000.00$ or 24h volume $> \$5,000.00$ automatically revokes autonomous approval authority, forcing disposition $\ge$ `REVIEW`.
 
 ### D. Source Verification & Policy Grounding
-* **ChromaDB Policy Retrieval**: Retrieval-Augmented Generation embeds current rulebooks ([fraud-risk-policy-2026.md](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/policy-docs/fraud-risk-policy-2026.md)).
+* **ChromaDB Policy Retrieval**: Retrieval-Augmented Generation embeds current rulebooks ([fraud-risk-policy-2026.md](policy-docs/fraud-risk-policy-2026.md)).
 * **Mandatory Policy Citations**: The Decision Agent must ground its justification in specific clause identifiers (e.g., `[POL-2026-VEL-01]`, `[POL-2026-MCC-6051]`). Ungrounded assertions are formally rejected by the Evaluator Critic.
 
 ### E. Tool Access Limits & Least Privilege Ring-Fencing
 * **Read-Only Separation of Concerns**: Scoring agents possess read-only database and tool permissions (`SELECT` on SQLite, similarity queries on ChromaDB). No agent has write authority to freeze accounts, move money, or alter balances.
-* **Bounded Sub-Delegation**: Supplementary queries from Analysis to Data Retrieval are hard-capped at **1 round-trip** per transaction ([workflow.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/workflow.py#L637-L646)), preventing recursive execution cascades.
+* **Bounded Sub-Delegation**: Supplementary queries from Analysis to Data Retrieval are hard-capped at **1 round-trip** per transaction ([workflow.py](../src/fraud_scorer/agents/workflow.py#L637-L646)), preventing recursive execution cascades.
 
 ### F. Runtime SLA Circuit Breakers & Fallback Logic
 * **Retry Counter**: The Actor-Critic feedback loop is capped at `max_evaluation_retries = 3`.
-* **Execution Timeout Budget**: Wall-clock execution is monitored against `max_timeout_ms = 1800.0`. If exceeded, the loop trips into `circuit_breaker_fallback_node`, failing safe to `REVIEW` for human dispatch ([workflow.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/workflow.py#L564-L635)).
+* **Execution Timeout Budget**: Wall-clock execution is monitored against `max_timeout_ms = 1800.0`. If exceeded, the loop trips into `circuit_breaker_fallback_node`, failing safe to `REVIEW` for human dispatch ([workflow.py](../src/fraud_scorer/agents/workflow.py#L564-L635)).
 
 ---
 
@@ -176,12 +176,12 @@ Autonomous agent authority must terminate whenever confidence decreases, data de
 
 ### Condition 2: Financial Blast-Radius & Exposure Ceilings
 * **Single Transaction Value Cap**: Any transaction $> \$5,000.00\text{ USD}$ automatically revokes autonomous approval authority. Requires human analyst sign-off or cryptographic step-up approval regardless of how low the agent's risk score is.
-* **Cumulative 24-Hour Velocity Cap**: If 24-hour aggregate spend exceeds $\$5,000.00$ ([POL-2026-VEL-02](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/policy-docs/fraud-risk-policy-2026.md#L42-L45)), autonomous straight-through processing is suspended.
+* **Cumulative 24-Hour Velocity Cap**: If 24-hour aggregate spend exceeds $\$5,000.00$ ([POL-2026-VEL-02](policy-docs/fraud-risk-policy-2026.md#L42-L45)), autonomous straight-through processing is suspended.
 * **Chronic Merchant Dispute Rate**: Merchants exhibiting chargeback/dispute rates $\ge 25\%$ trigger mandatory analyst queue routing.
 
 ### Condition 3: Offline Infrastructure & Value-Based Fast-Path Gating (Pattern 2)
 When Ollama, local models, or cloud LLMs are unreachable or disabled, routing 100% of traffic to manual review creates a severe queue bottleneck. Under **Pattern 2**:
-* Deterministic feature extraction runs first via SQLite ([sqllite/crud.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/sqllite/crud.py)).
+* Deterministic feature extraction runs first via SQLite ([sqllite/crud.py](../src/sqllite/crud.py)).
 * The system evaluates value-based risk criteria before calling the LLM reasoning plane:
   1. **Mandatory Human Escalation (`REVIEW`)**:
      * `amount > $500.00` to a **new destination** (country/city not in customer history, or merchant unverified).
@@ -253,7 +253,7 @@ To ensure safe, robust, and compliant operation in production enterprise environ
 
 ### A. Regulatory Compliance & Adverse Action Readiness
 * **PCI-DSS v4.0.1 Compliance**: Continuous client-side masking guarantees PANs, PINs, and CVVs never touch LLM context windows, vector embeddings, or disk logs.
-* **Fair Lending & ECOA/FCRA Alignment**: By requiring strict ChromaDB policy grounding and barring demographic proxy variables (such as zip-code redlining), adverse action notices cite verified, auditable business rules ([fraud-risk-policy-2026.md](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/policy-docs/fraud-risk-policy-2026.md)).
+* **Fair Lending & ECOA/FCRA Alignment**: By requiring strict ChromaDB policy grounding and barring demographic proxy variables (such as zip-code redlining), adverse action notices cite verified, auditable business rules ([fraud-risk-policy-2026.md](policy-docs/fraud-risk-policy-2026.md)).
 
 ### B. High Availability & Graceful Degradation
 * **Local LLM Independence**: The system defaults to local Ollama inference (`llama3.1:8b`, `llama3.2:3b`), ensuring zero dependency on external third-party cloud APIs for core scoring.

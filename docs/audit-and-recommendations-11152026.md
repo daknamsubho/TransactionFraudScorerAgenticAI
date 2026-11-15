@@ -25,32 +25,32 @@ To solve this, the architecture introduces **Value-Based Deterministic Gating**:
 ### A. Deterministic Safety Floors & Policy Overrides
 * **Critical Geo-Anomaly Floor**:
   * If a transaction exhibits impossible travel (Haversine transit speed $> 800\text{ km/h}$ or distance $> 5,000\text{ km}$), the system enforces a hard floor: the composite risk score is bumped to at least **75.0 / 100.0**, forcing disposition to `DECLINE`.
-  * The Evaluator Agent strictly rejects any draft assessment attempting to mark an impossible travel scenario as `APPROVE` ([risk_scoring_decision_skill.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/skills/risk_scoring_decision_skill.py#L33-L39), [evaluator_agent.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/evaluator_agent.py#L105-L117)).
+  * The Evaluator Agent strictly rejects any draft assessment attempting to mark an impossible travel scenario as `APPROVE` ([risk_scoring_decision_skill.py](../src/fraud_scorer/skills/risk_scoring_decision_skill.py#L33-L39), [evaluator_agent.py](../src/fraud_scorer/agents/evaluator_agent.py#L105-L117)).
 * **Decision Taxonomy Alignment**:
   * `0.0 – 29.9` $\rightarrow$ `APPROVE`
   * `30.0 – 69.9` $\rightarrow$ `REVIEW`
   * `70.0 – 100.0` $\rightarrow$ `DECLINE`
-  * The Evaluator validates that the final disposition matches this taxonomy, preventing threshold hallucinations ([evaluator_agent.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/evaluator_agent.py#L134-L157)).
+  * The Evaluator validates that the final disposition matches this taxonomy, preventing threshold hallucinations ([evaluator_agent.py](../src/fraud_scorer/agents/evaluator_agent.py#L134-L157)).
 
 ### B. Actor-Critic Auditing Rubrics (Evaluator Agent)
 The system separates draft generation (`DecisionAgent` — Actor) from compliance audit (`EvaluatorAgent` — Critic) using three deterministic checks:
-1. **Mathematical Consistency**: Sum of `RiskFactor.contribution_score` values must equal `overall_risk_score` within $\pm 5.0$ points. Deviations trigger an `ARITHMETIC_ERROR` rejection ([evaluator_agent.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/evaluator_agent.py#L120-L133)).
-2. **Explainability & Grounding**: The `reasoning_summary` must be non-empty, $\ge 10$ characters, and explicitly cite the detected risk categories (`VELOCITY`, `GEO_ANOMALY`, `MERCHANT_RISK`, `AMOUNT_ANOMALY`, `ACCOUNT_HISTORY`). Missing citations trigger an `UNGROUNDED_ASSERTION` rejection ([evaluator_agent.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/evaluator_agent.py#L159-L185)).
-3. **Targeted Remediation Feedback**: Instead of blind restarts, the Evaluator issues actionable feedback targeting the `decision` or `analysis` agent ([evaluator_agent.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/evaluator_agent.py#L37-L61)).
+1. **Mathematical Consistency**: Sum of `RiskFactor.contribution_score` values must equal `overall_risk_score` within $\pm 5.0$ points. Deviations trigger an `ARITHMETIC_ERROR` rejection ([evaluator_agent.py](../src/fraud_scorer/agents/evaluator_agent.py#L120-L133)).
+2. **Explainability & Grounding**: The `reasoning_summary` must be non-empty, $\ge 10$ characters, and explicitly cite the detected risk categories (`VELOCITY`, `GEO_ANOMALY`, `MERCHANT_RISK`, `AMOUNT_ANOMALY`, `ACCOUNT_HISTORY`). Missing citations trigger an `UNGROUNDED_ASSERTION` rejection ([evaluator_agent.py](../src/fraud_scorer/agents/evaluator_agent.py#L159-L185)).
+3. **Targeted Remediation Feedback**: Instead of blind restarts, the Evaluator issues actionable feedback targeting the `decision` or `analysis` agent ([evaluator_agent.py](../src/fraud_scorer/agents/evaluator_agent.py#L37-L61)).
 
 ### C. Workflow SLA, Circuit Breaker & Fallback Guardrails
-* **Loop Circuit Breaker**: Evaluator feedback loops are strictly capped at `max_evaluation_retries = 3` ([config.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/config.py#L140-L141), [workflow.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/workflow.py#L90-L92)).
-* **SLA Timeout Protection**: Hard budget of `max_timeout_ms = 1800.0` (1.8s) stops latency explosion during synchronous checkout ([workflow.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/workflow.py#L652-L658)).
-* **Circuit Breaker Fallback Node**: If retries or timeout limits are exceeded, execution transitions to `circuit_breaker_fallback_node`. Scores $\ge 70.0$ default to `DECLINE`; all others default safely to `REVIEW` ([workflow.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/workflow.py#L564-L635)).
-* **Sub-Delegation Query Throttling**: Supplementary policy queries from Analysis Agent to Data Retriever are hard-capped at **1 request** per evaluation (`supplementary_count < 1`) ([workflow.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/workflow.py#L637-L646)).
+* **Loop Circuit Breaker**: Evaluator feedback loops are strictly capped at `max_evaluation_retries = 3` ([config.py](../src/fraud_scorer/config.py#L140-L141), [workflow.py](../src/fraud_scorer/agents/workflow.py#L90-L92)).
+* **SLA Timeout Protection**: Hard budget of `max_timeout_ms = 1800.0` (1.8s) stops latency explosion during synchronous checkout ([workflow.py](../src/fraud_scorer/agents/workflow.py#L652-L658)).
+* **Circuit Breaker Fallback Node**: If retries or timeout limits are exceeded, execution transitions to `circuit_breaker_fallback_node`. Scores $\ge 70.0$ default to `DECLINE`; all others default safely to `REVIEW` ([workflow.py](../src/fraud_scorer/agents/workflow.py#L564-L635)).
+* **Sub-Delegation Query Throttling**: Supplementary policy queries from Analysis Agent to Data Retriever are hard-capped at **1 request** per evaluation (`supplementary_count < 1`) ([workflow.py](../src/fraud_scorer/agents/workflow.py#L637-L646)).
 
 ### D. Data Privacy, PII & PCI-DSS Scrubbing
-* **Payload Sanitizer** ([sanitizer.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/observability/sanitizer.py)):
+* **Payload Sanitizer** ([sanitizer.py](../src/fraud_scorer/observability/sanitizer.py)):
   * Primary Account Numbers (13–19 digits) are masked to `****-****-****-1234`.
   * Sensitive keys (`pan`, `card_number`, `cvv`, `pin`, `ssn`, `iban`, `api_key`, `secret`) are replaced with `***REDACTED***`.
   * Personal Identifiable Information (`full_name`, `billing_address`, `email`, `phone`) is replaced with `***REDACTED_PII***`.
   * IP addresses mask the final segment (e.g. `192.168.1.***`).
-* **Telemetry Egress Filter**: LangSmith and OpenTelemetry trace interceptors pass all logged payloads through `process_inputs=sanitize_transaction_payload` when `langsmith_mask_pii=True` ([tracer.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/observability/tracer.py#L111-L144)).
+* **Telemetry Egress Filter**: LangSmith and OpenTelemetry trace interceptors pass all logged payloads through `process_inputs=sanitize_transaction_payload` when `langsmith_mask_pii=True` ([tracer.py](../src/fraud_scorer/observability/tracer.py#L111-L144)).
 
 ---
 
@@ -94,7 +94,7 @@ The agents are merely cognitive coordinators. When LLMs are offline, the underly
     * Otherwise $\rightarrow$ Fast-Path Auto `APPROVE`.
   * If LLMs are **Online**: Passes extracted features to `Decision Agent (Actor)` and `Evaluator Agent (Critic)` for multi-agent synthesis.
 * **Why Pattern 2 is Selected**:
-  1. Reuses existing modular skills ([velocity_analysis_skill.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/skills/velocity_analysis_skill.py), [geo_anomaly_skill.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/skills/geo_anomaly_skill.py), [account_history_skill.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/skills/account_history_skill.py)) without duplicate gateway code.
+  1. Reuses existing modular skills ([velocity_analysis_skill.py](../src/fraud_scorer/skills/velocity_analysis_skill.py), [geo_anomaly_skill.py](../src/fraud_scorer/skills/geo_anomaly_skill.py), [account_history_skill.py](../src/fraud_scorer/skills/account_history_skill.py)) without duplicate gateway code.
   2. Preserves full telemetry and WebSocket `AgentStepEvent` streaming even in degraded offline mode.
   3. Provides seamless graceful degradation: feature calculation is always guaranteed; only the LLM reasoning layer is bypassed.
 
@@ -103,7 +103,7 @@ The agents are merely cognitive coordinators. When LLMs are offline, the underly
 ## 5. Architectural Design: Proposed State Machine (Pattern 2 Implementation)
 
 The diagram below depicts the **complete system state graph adopting Pattern 2**.
-* **Solid Blue Nodes (`:::existingNode`)**: Existing baseline components implemented in [workflow.py](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/src/fraud_scorer/agents/workflow.py).
+* **Solid Blue Nodes (`:::existingNode`)**: Existing baseline components implemented in [workflow.py](../src/fraud_scorer/agents/workflow.py).
 * **Dashed Gold Nodes (`:::newChange`)**: **NEW architectural gates, value-based offline routing, and asynchronous human suspension mechanisms**.
 
 ```mermaid
@@ -233,7 +233,7 @@ flowchart TD
 * **Location in Pipeline**: Post-evaluation governance interceptor evaluated after `evaluator_node` emits `ACCEPTED`.
 * **Trigger Conditions**:
   1. Single transaction amount $> \$5,000.00\text{ USD}$.
-  2. Cumulative 24-hour account volume $> \$5,000.00\text{ USD}$ ([POL-2026-VEL-02](file:///Users/abhishekbiswas/AppDevelppment/TransactionFraudScorerAgenticAI/docs/policy-docs/fraud-risk-policy-2026.md#L42-L45)).
+  2. Cumulative 24-hour account volume $> \$5,000.00\text{ USD}$ ([POL-2026-VEL-02](policy-docs/fraud-risk-policy-2026.md#L42-L45)).
 * **Architectural Action**: Hard override. Even if the Decision Agent and Evaluator Agent agreed on a low composite score (e.g. $15.0 / \text{APPROVE}$), this gate revokes autonomous approval authority and forces disposition to `REVIEW` requiring human sign-off.
 
 ### Gate 4: Asynchronous Human-in-the-Loop State Suspension
